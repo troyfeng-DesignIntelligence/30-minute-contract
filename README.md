@@ -1,46 +1,11 @@
-# 30-minute-contract
+# 洪流骑手测试版
 
-A critical interactive experience about the hidden cost of food delivery speed.
+这是用于真人试测的静态部署包，只包含模拟器的浏览器运行文件，不包含研究文档、恢复模型、分析结果或参与者数据。
 
-Every order comes with a 30-minute promise.  
-This project asks: who pays for it?
+- 首页默认进入正式模式：12 段 × 4 次，共 48 trial。
+- 首页会为本次测试生成随机 seed，并把它保留在跳转后的网址和下载日志中。
+- 完成后由参与者主动下载 JSON 日志；站点不会自动收集或上传参与者数据。
 
----
+测试入口：https://troyfeng-designintelligence.github.io/30-minute-contract/
 
-## Concept
-
-Platform algorithms assign delivery windows. Riders absorb the risk.  
-Users wait. Riders decide — every red light, every narrow alley, every second.
-
-This is not a product critique. It is an attempt to make the invisible visible.
-
----
-
-## Research
-
-A Bayesian game study on decision-making under uncertainty in platform delivery labor.
-
-**Research Question:** In food delivery decision-making, does information incompleteness amplify the effect of social pressure (user urging) on risk-taking behavior?
-
-**Framework:** POMDP · Bayesian Inference · Computational Rationality (Oulasvirta et al.)
-
-**Methods:** Game-based study (Unity) · Field interviews with riders · User survey (n=35, complete)
-
----
-
-## Structure
-
-- **`docs/`** — Research framework, design documents
-- **`research/`** — Interview data, survey analysis
-- **`Assets/`** — Unity game assets
-
----
-
-## Status
-
-`Phase 1 — Research Design & Game Prototype`  
-Started: April 2026
-
----
-
-*Made as part of a portfolio for graduate design school applications (Aalto, TU Delft, Malmö).*
+该入口只用于投稿前的受邀预试。正式匿名评审前应停止公开部署，并改用匿名的补充材料托管方式。

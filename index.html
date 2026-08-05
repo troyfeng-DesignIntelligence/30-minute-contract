@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>洪流骑手</title>
+</head>
+<body>
+  <p>正在进入骑手模拟器……</p>
+  <script>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      if (!params.has("mode")) params.set("mode", "experiment");
+      if (!params.has("seed")) {
+        const values = new Uint32Array(1);
+        if (globalThis.crypto?.getRandomValues) {
+          globalThis.crypto.getRandomValues(values);
+        } else {
+          values[0] = Math.floor(Math.random() * 0xffffffff);
+        }
+        params.set("seed", String(values[0] || 4081));
+      }
+      if (!params.has("ui")) params.set("ui", "variable-urgency-v2.3");
+      location.replace(`./pomdp-v2.html?${params.toString()}`);
+    })();
+  </script>
+</body>
+</html>
