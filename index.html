@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex, nofollow">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'">
   <title>洪流骑手</title>
 </head>
 <body>
@@ -11,7 +12,7 @@
   <script>
     (() => {
       const params = new URLSearchParams(location.search);
-      if (!params.has("mode")) params.set("mode", "experiment");
+      if (!params.has("mode")) params.set("mode", "pilot");
       if (!params.has("seed")) {
         const values = new Uint32Array(1);
         if (globalThis.crypto?.getRandomValues) {
@@ -21,7 +22,11 @@
         }
         params.set("seed", String(values[0] || 4081));
       }
-      if (!params.has("ui")) params.set("ui", "variable-urgency-v2.3");
+      if (!params.has("pid")) {
+        const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+        params.set("pid", `SHARE-${Date.now().toString(36).toUpperCase()}-${suffix}`);
+      }
+      if (!params.has("build")) params.set("build", "pilot-instrumentation-20260807.4");
       location.replace(`./pomdp-v2.html?${params.toString()}`);
     })();
   </script>

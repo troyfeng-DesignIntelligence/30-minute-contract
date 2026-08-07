@@ -4,9 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#102f30">
-  <meta name="robots" content="noindex, nofollow, noarchive">
   <title>洪流骑手 · 等还是先送</title>
   <link rel="stylesheet" href="./pomdp-v2.css">
+  <script type="importmap">
+    { "imports": { "three": "./node_modules/three/build/three.module.js" } }
+  </script>
 </head>
 <body>
   <main id="pomdpGame" class="pomdp-game" aria-label="第一人称外卖骑手体验">
@@ -15,41 +17,54 @@
     <p id="webglFallback" class="fallback is-hidden" role="status">3D画面暂时没有加载，操作仍可继续。</p>
 
     <header id="hud" class="hud is-hidden">
-      <div id="objectiveChip" class="objective-chip">
-        <small id="segmentLabel">午高峰 · 本段第1次送单</small>
-        <strong id="objectiveLabel">去下一家取餐</strong>
-        <span id="merchantLabel">灯火便当</span>
+        <div id="objectiveChip" class="objective-chip">
+          <small id="segmentLabel">午高峰 · 第1/12家</small>
+          <strong id="merchantLabel">当前店铺：灯火便当</strong>
+          <span id="storeProgressLabel">本店第 1 / 6 组订单</span>
+          <span id="objectiveLabel" class="objective-state">去店里取餐</span>
       </div>
       <div class="status-strip">
         <div id="capacityStatus" class="capacity-status">
           <span>接单余力</span>
           <div id="capacityCells" class="capacity-cells" aria-label="接单余力"></div>
         </div>
-        <div id="incomeStatus" class="income-status"><span>今天赚到</span><strong id="incomeValue">¥0</strong></div>
+        <div id="incomeStatus" class="income-status"><span>收入</span><strong id="incomeValue">¥0</strong></div>
       </div>
     </header>
 
+    <aside id="riderNotebook" class="rider-notebook is-hidden" aria-label="骑手笔记：刚才的取餐记录" aria-live="polite">
+      <span class="notebook-tab">骑手笔记</span>
+      <div class="notebook-page">
+        <small>刚才的取餐记录</small>
+        <strong id="notebookMerchant">灯火便当</strong>
+        <div class="notebook-rule" aria-hidden="true"></div>
+        <p id="historyFact1">上一次：短等后取到了餐</p>
+        <p id="historyFact2" class="is-hidden"></p>
+        <em>只记发生过的事，不替你判断</em>
+      </div>
+    </aside>
+
     <section id="travelPrompt" class="travel-prompt is-hidden" aria-live="polite">
       <span id="travelIcon" class="travel-icon">➜</span>
-      <div><strong id="travelTitle">去下一家取餐</strong><small id="travelDetail">导航会自动带路</small></div>
+      <div><strong id="travelTitle">出发取餐</strong><small id="travelDetail">自动导航</small></div>
       <i><b id="travelProgress"></b></i>
     </section>
 
-    <section id="routeDecision" class="decision-dock is-hidden" tabindex="-1" aria-labelledby="routeDecisionTitle">
+      <section id="routeDecision" class="decision-dock is-hidden" tabindex="-1" aria-labelledby="routeDecisionTitle">
       <div class="decision-copy">
         <span class="eyebrow">到店了</span>
         <h1 id="routeDecisionTitle">新餐还没好。你怎么安排？</h1>
-        <p id="experienceText">我跑这家店的经验：午高峰有时会拖一会儿。</p>
-      </div>
-      <div class="time-glance" aria-label="两张订单的紧迫程度">
-        <p class="glance-legend">看时间条：越长，这单越赶。</p>
+          <p id="experienceText">该店惯例：午高峰有时会拖一会儿。</p>
+        </div>
+      <div class="time-glance" aria-label="订单紧迫程度">
+        <p class="glance-legend">剩余时间</p>
         <article id="carriedOrderCard">
-          <div><span>手上这单</span><strong id="carriedUrgencyLabel">有点赶</strong></div>
+          <div><span>已取的单</span><strong id="carriedUrgencyLabel">有点赶</strong></div>
           <div class="urgency-track"><i id="carriedUrgency"></i></div>
           <small id="carriedDestination">送往花园里</small>
         </article>
         <article id="newOrderCard">
-          <div><span>等取的新单</span><strong id="newUrgencyLabel">时间还够</strong></div>
+          <div><span>待取的单</span><strong id="newUrgencyLabel">时间还够</strong></div>
           <div class="urgency-track new-order"><i id="newUrgency"></i></div>
           <small id="platformText">平台排的时间比较宽裕</small>
         </article>
@@ -58,19 +73,19 @@
         <button type="button" data-route="wait_briefly">
           <span class="action-icon">◷</span>
           <strong>先等一小会</strong>
-          <small>只等一小会。餐好了就一起走；到点还没好，马上先送手上的。</small>
+          <small>等一会新单，餐好了就一起送；如果到点还没出餐，马上先送手上的这份。</small>
         </button>
         <button type="button" data-route="deliver_carried_first">
           <span class="action-icon">➜</span>
           <strong>先送手上这单</strong>
-          <small>现在就走，送完再回来。能保住手上的单，但要折返。</small>
+          <small>现在就去送餐，送完再回来。能保住手上的单，但要折返一次。</small>
         </button>
       </div>
     </section>
 
     <section id="speedDecision" class="speed-dock is-hidden" aria-labelledby="speedTitle">
-      <div class="speed-heading"><span class="eyebrow">路线排好了</span><h2 id="speedTitle">这整趟路准备怎么骑？</h2><p id="chosenRouteText">选定后，到两单送完都按这一档骑。</p></div>
-      <div class="gear-legend" aria-hidden="true"><span>省时间</span><span>事故风险</span></div>
+      <div class="speed-heading"><h2 id="speedTitle">准备骑多快？</h2><p id="chosenRouteText">选定后，到两单送完都按这一档骑。</p></div>
+      <div class="gear-legend" aria-hidden="true"><span>省时程度</span><span>事故风险</span></div>
       <div id="gearLever" class="gear-lever" role="radiogroup" aria-label="骑行档位">
         <button type="button" data-speed="normal" role="radio" aria-checked="false"><b>1</b><strong>稳骑</strong><span class="gear-meter"><i></i><em></em></span><small>慢一些 · 风险低</small></button>
         <button type="button" data-speed="rush" role="radio" aria-checked="false"><b>2</b><strong>赶路</strong><span class="gear-meter"><i></i><em></em></span><small>快一些 · 风险中</small></button>
@@ -90,19 +105,19 @@
     </aside>
 
     <section id="resultCard" class="result-card is-hidden" aria-labelledby="resultTitle">
-      <span class="eyebrow">这一趟跑完了</span>
+      <span class="eyebrow">跑完一单</span>
       <h2 id="resultTitle">两单都送到了</h2>
       <div id="resultGrid" class="result-grid">
         <article><span>手上这单</span><strong id="carriedResult">准时</strong></article>
         <article><span>新取这单</span><strong id="newResult">准时</strong></article>
-        <article><span>路上</span><strong id="incidentResult">平安</strong></article>
+        <article><span>路上</span><strong id="incidentResult">未出事故</strong></article>
         <article><span>赚到</span><strong id="incomeResult">+¥24</strong></article>
       </div>
       <div id="incidentConsequences" class="incident-consequences is-hidden" role="status">
-        <span>同一次事故的两个后果</span>
+        <span>事故后果</span>
         <div>
-          <strong id="incidentDelayResult">这趟多耽误约一分半</strong>
-          <strong id="incidentCapacityResult">接单余力 −1格</strong>
+          <strong id="incidentDelayResult">导致送餐误时</strong>
+          <strong id="incidentCapacityResult">接单余力 −1</strong>
         </div>
       </div>
       <button id="continueButton" class="primary-button" type="button">继续跑单</button>
@@ -112,19 +127,19 @@
       <div class="start-copy">
         <span class="eyebrow">午高峰 · 骑手上岗</span>
         <h1>洪流骑手</h1>
-        <p>今天你来当一次外卖骑手，目标就是多赚钱。平台已经排好订单，导航会自动带路；到了关键地方，由你决定怎么跑。</p>
-        <button id="startButton" class="primary-button" type="button">先试跑一段 <span>→</span></button>
-        <small id="modeDescription">今天先跑2段 · 每段4组</small>
+        <p>今天你来当一次外卖骑手，目标就是多赚钱。平台已经排好订单，导航会自动带你到取餐点和送餐地，但你需要决定是否等商家出餐和送餐的速度。</p>
+        <button id="startButton" class="primary-button" type="button">下面是试跑环节 <span>→</span></button>
+        <small id="modeDescription">正式班次：2家店 · 每家6组</small>
       </div>
-      <div class="start-goal"><span>今天的目标</span><strong>多赚钱</strong><small>别让订单迟到，也别在路上出事</small></div>
+      <div class="start-goal"><span>目标</span><strong>多赚钱</strong><small>别让订单迟到，也别在路上出事</small></div>
     </section>
 
     <section id="briefingModal" class="modal-layer is-hidden" role="dialog" aria-modal="true" aria-labelledby="briefingTitle">
       <div class="briefing-card">
         <div class="step-progress"><span id="briefingStep">上岗准备 · 1/1</span><i><b id="briefingProgress"></b></i></div>
-        <span id="briefingKicker" class="eyebrow">先熟悉一下跑法</span>
-        <h2 id="briefingTitle">你就是今天来跑单的骑手</h2>
-        <p id="briefingLead">先跑两组订单熟悉一下。到了要做决定的地方，会有人提醒你该看什么。</p>
+        <span id="briefingKicker" class="eyebrow">熟悉跑法</span>
+        <h2 id="briefingTitle">你就是今天跑单的骑手</h2>
+        <p id="briefingLead"></p>
         <div id="briefingVisual" class="briefing-visual"></div>
         <button id="briefingNext" class="primary-button" type="button">戴好头盔，出发 <span>→</span></button>
       </div>
@@ -139,8 +154,32 @@
       </div>
     </section>
 
+    <section id="notebookTutorialModal" class="modal-layer is-hidden" role="dialog" aria-modal="true" aria-labelledby="notebookTutorialTitle">
+      <div class="notebook-tutorial-card">
+        <div class="step-progress"><span id="notebookTutorialStep">上岗提示 · 8/12</span><i><b></b></i></div>
+        <span class="eyebrow">跑过一组以后</span>
+        <h2 id="notebookTutorialTitle">先认一下骑手笔记</h2>
+        <p>刚才取餐时发生了什么，会单独记在这里。下一次再到这家店，你不用只靠记忆。</p>
+        <div class="notebook-tutorial-layout">
+          <div class="notebook-tutorial-page" aria-label="骑手笔记示例">
+            <small>刚才的取餐记录</small>
+            <strong id="notebookTutorialMerchant">当前店铺</strong>
+            <i aria-hidden="true"></i>
+            <p id="notebookTutorialFact1">上一次：刚才的情况已经记下</p>
+            <p id="notebookTutorialFact2" class="is-hidden"></p>
+          </div>
+          <div class="notebook-tutorial-rules">
+            <article><b>它会记</b><span>本店最近两次实际发生的取餐结果。</span></article>
+            <article><b>它不会替你判断</b><span>不会直接说店里现在忙不忙。你还要结合眼前两单，再决定等不等。</span></article>
+            <article><b>换店会重开</b><span>到了下一家店，旧店的笔记不会带过去。</span></article>
+          </div>
+        </div>
+        <button id="notebookTutorialNext" class="primary-button" type="button">看懂了，继续跑单</button>
+      </div>
+    </section>
+
     <section id="breakModal" class="modal-layer is-hidden" role="dialog" aria-modal="true" aria-labelledby="breakTitle">
-      <div class="break-card"><span class="eyebrow">这一段忙完了</span><h2 id="breakTitle">看看有没有接到最后一单</h2><div id="breakBonus" class="break-bonus"><span>最后加单</span><strong id="breakBonusTitle">接到了 · +¥12</strong><small id="breakBonusText">还剩两格余力，这单稳稳接到了。</small></div><p>下一段开始，接单余力会恢复。店里也可能重新忙起来，别把刚才的出餐速度当成准数。</p><button id="breakButton" class="primary-button" type="button">恢复余力，开始下一段</button></div>
+      <div class="break-card"><span class="eyebrow">这家店跑完了</span><h2 id="breakTitle">看看有没有接到最后一单</h2><div id="breakBonus" class="break-bonus"><span>最后加单</span><strong id="breakBonusTitle">接到了 · +¥12</strong><small id="breakBonusText">还剩两格余力，这单稳稳接到了。</small></div><p id="breakNextText">到了下一家店，接单余力会恢复，骑手笔记也会重新开始。新店什么情况，还得重新看。</p><button id="breakButton" class="primary-button" type="button">前往下一家店</button></div>
     </section>
 
     <section id="summaryModal" class="modal-layer is-hidden" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
@@ -150,6 +189,7 @@
     <pre id="debugPanel" class="debug-panel is-hidden" aria-hidden="true"></pre>
   </main>
   <script src="./src/pomdp-v2-sim.js"></script>
+  <script src="./src/experiment-telemetry.js"></script>
   <script type="module" src="./src/pomdp-v2-app.js"></script>
 </body>
 </html>

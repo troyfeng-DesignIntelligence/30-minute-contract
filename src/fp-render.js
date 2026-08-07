@@ -1,13 +1,45 @@
 import * as THREE from "../node_modules/three/build/three.module.js";
+import { createFirstPersonAssetLayers, normalizeArtLevel } from "./fp-asset-layers.js";
 
 const TONES = Object.freeze({
-  normal: { speed: 15, bob: 0.004, lean: 0 },
-  rush: { speed: 22, bob: 0.009, lean: 0.006 },
-  sprint: { speed: 29, bob: 0.014, lean: 0.011 }
+  normal: { speed: 15, bob: 0.004, lean: 0, blur: .7, blurOpacity: .13 },
+  rush: { speed: 22, bob: 0.009, lean: 0.006, blur: 1.55, blurOpacity: .25 },
+  sprint: { speed: 29, bob: 0.014, lean: 0.011, blur: 2.8, blurOpacity: .38 }
 });
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+const RENDER_PROFILES = Object.freeze({
+  legacy: Object.freeze({
+    version: "legacy-render-v1",
+    background: 0x90c8c0,
+    fog: 0x91c7be,
+    fogDensity: 0.017,
+    exposure: 1.08,
+    hemiSky: 0xfff4cd,
+    hemiGround: 0x274b50,
+    hemiIntensity: 2.5,
+    sunColor: 0xffecc0,
+    sunIntensity: 3.4
+  }),
+  county: Object.freeze({
+    version: "county-town-decayed-surreal-v2",
+    background: 0x95998f,
+    fog: 0x92988e,
+    fogDensity: 0.0155,
+    exposure: 0.91,
+    hemiSky: 0xd8d3c2,
+    hemiGround: 0x444b42,
+    hemiIntensity: 1.95,
+    sunColor: 0xd9bd8e,
+    sunIntensity: 1.48
+  })
+});
+
+function renderProfileFor(value) {
+  return value === "legacy" ? RENDER_PROFILES.legacy : RENDER_PROFILES.county;
 }
 
 function seeded(seed) {
@@ -68,7 +100,7 @@ function disposeObject(object) {
   });
 }
 
-function fallbackWorld() {
+function fallbackWorld(renderStyleVersion = RENDER_PROFILES.county.version) {
   const noop = () => {};
   const resolved = () => Promise.resolve();
   return {
@@ -85,15 +117,114 @@ function fallbackWorld() {
     playIncident: resolved,
     playDelivery: resolved,
     cruise: resolved,
+    getVisualRuntime: () => ({ requestedArtLevel: "procedural", renderStyleVersion, layers: {} }),
     destroy: noop
   };
 }
 
 export function createFirstPersonWorld(canvas, options = {}) {
+  const artLevel = normalizeArtLevel(options.artLevel);
+  const renderProfile = renderProfileFor(options.renderStyle);
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const performanceStartedAtMs = performance.now();
+  const renderPerformance = {
+    firstFrameAtMs: null,
+    visibleFrameCount: 0,
+    intervalSampleCount: 0,
+    intervalTotalMs: 0,
+    minimumInstantaneousFps: Number.POSITIVE_INFINITY,
+    minimumWindowFps: Number.POSITIVE_INFINITY,
+    longFramesOver50Ms: 0,
+    lastVisibleFrameAtMs: null,
+    windowStartedAtMs: performanceStartedAtMs,
+    windowFrameCount: 0,
+    contextLossCount: 0,
+    contextRestoreCount: 0,
+    contextLossEvents: [],
+    contextRestoreEvents: []
+  };
+
+  function resetVisibleFrameBoundary() {
+    renderPerformance.lastVisibleFrameAtMs = null;
+    renderPerformance.windowStartedAtMs = performance.now();
+    renderPerformance.windowFrameCount = 0;
+  }
+
+  function sampleRenderPerformance(frameAtMs) {
+    if (document.visibilityState !== "visible") return;
+    if (renderPerformance.firstFrameAtMs === null) {
+      renderPerformance.firstFrameAtMs = frameAtMs - performanceStartedAtMs;
+    }
+    renderPerformance.visibleFrameCount += 1;
+    renderPerformance.windowFrameCount += 1;
+    if (renderPerformance.lastVisibleFrameAtMs !== null) {
+      const intervalMs = frameAtMs - renderPerformance.lastVisibleFrameAtMs;
+      if (intervalMs > 0) {
+        renderPerformance.intervalSampleCount += 1;
+        renderPerformance.intervalTotalMs += intervalMs;
+        renderPerformance.minimumInstantaneousFps = Math.min(
+          renderPerformance.minimumInstantaneousFps,
+          1000 / intervalMs
+        );
+        if (intervalMs > 50) renderPerformance.longFramesOver50Ms += 1;
+      }
+    }
+    renderPerformance.lastVisibleFrameAtMs = frameAtMs;
+    const windowDurationMs = frameAtMs - renderPerformance.windowStartedAtMs;
+    if (windowDurationMs >= 1000) {
+      const windowFps = Math.max(0, renderPerformance.windowFrameCount - 1) * 1000 / windowDurationMs;
+      renderPerformance.minimumWindowFps = Math.min(renderPerformance.minimumWindowFps, windowFps);
+      renderPerformance.windowStartedAtMs = frameAtMs;
+      renderPerformance.windowFrameCount = 0;
+    }
+  }
+
+  function performanceSnapshot() {
+    const now = performance.now();
+    const activeWindowDurationMs = now - renderPerformance.windowStartedAtMs;
+    const activeWindowFps = activeWindowDurationMs >= 250 && renderPerformance.windowFrameCount > 1
+      ? (renderPerformance.windowFrameCount - 1) * 1000 / activeWindowDurationMs
+      : null;
+    const completedWindowFps = Number.isFinite(renderPerformance.minimumWindowFps)
+      ? renderPerformance.minimumWindowFps
+      : null;
+    const windowFpsCandidates = [completedWindowFps, activeWindowFps].filter(Number.isFinite);
+    const minimumFps = windowFpsCandidates.length
+      ? Math.min(...windowFpsCandidates)
+      : (Number.isFinite(renderPerformance.minimumInstantaneousFps)
+        ? renderPerformance.minimumInstantaneousFps
+        : 0);
+    return {
+      measurement: "visible_request_animation_frame_intervals",
+      measurementDurationMs: Math.round((now - performanceStartedAtMs) * 100) / 100,
+      firstFrameAtMs: renderPerformance.firstFrameAtMs === null
+        ? null
+        : Math.round(renderPerformance.firstFrameAtMs * 100) / 100,
+      visibleFrameCount: renderPerformance.visibleFrameCount,
+      averageFps: renderPerformance.intervalTotalMs > 0
+        ? Math.round((renderPerformance.intervalSampleCount * 1000 / renderPerformance.intervalTotalMs) * 100) / 100
+        : 0,
+      minimumFps: Math.round(minimumFps * 100) / 100,
+      minimumOneSecondFps: Number.isFinite(completedWindowFps)
+        ? Math.round(completedWindowFps * 100) / 100
+        : null,
+      minimumInstantaneousFps: Number.isFinite(renderPerformance.minimumInstantaneousFps)
+        ? Math.round(renderPerformance.minimumInstantaneousFps * 100) / 100
+        : 0,
+      longFramesOver50Ms: renderPerformance.longFramesOver50Ms,
+      contextLossCount: renderPerformance.contextLossCount,
+      contextRestoreCount: renderPerformance.contextRestoreCount,
+      contextLossEvents: renderPerformance.contextLossEvents.map((event) => ({ ...event })),
+      contextRestoreEvents: renderPerformance.contextRestoreEvents.map((event) => ({ ...event })),
+      reducedMotion
+    };
+  }
+
+  document.addEventListener("visibilitychange", resetVisibleFrameBoundary);
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x90c8c0);
-  scene.fog = new THREE.FogExp2(0x91c7be, 0.017);
+  scene.background = new THREE.Color(renderProfile.background);
+  scene.fog = new THREE.FogExp2(renderProfile.fog, renderProfile.fogDensity);
+  canvas.parentElement?.setAttribute("data-render-style", renderProfile.version);
 
   const camera = new THREE.PerspectiveCamera(64, 1, 0.08, 180);
   camera.position.set(0, 1.48, 5.5);
@@ -105,18 +236,20 @@ export function createFirstPersonWorld(canvas, options = {}) {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
   } catch (error) {
     options.onContextError?.(error);
-    return fallbackWorld();
+    const fallback = fallbackWorld(renderProfile.version);
+    options.onVisualReady?.(fallback.getVisualRuntime());
+    return fallback;
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.65));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.08;
+  renderer.toneMappingExposure = renderProfile.exposure;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  const hemi = new THREE.HemisphereLight(0xfff4cd, 0x274b50, 2.5);
+  const hemi = new THREE.HemisphereLight(renderProfile.hemiSky, renderProfile.hemiGround, renderProfile.hemiIntensity);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffecc0, 3.4);
+  const sun = new THREE.DirectionalLight(renderProfile.sunColor, renderProfile.sunIntensity);
   sun.position.set(-16, 25, 8);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
@@ -124,6 +257,8 @@ export function createFirstPersonWorld(canvas, options = {}) {
   sun.shadow.camera.right = 18;
   sun.shadow.camera.top = 24;
   sun.shadow.camera.bottom = -12;
+  sun.shadow.radius = 3;
+  sun.shadow.bias = -0.00035;
   scene.add(sun);
 
   const road = new THREE.Mesh(
@@ -136,15 +271,29 @@ export function createFirstPersonWorld(canvas, options = {}) {
   scene.add(road);
 
   const sidewalkMaterial = new THREE.MeshStandardMaterial({ color: 0xd6d2b8, roughness: 1 });
+  const proceduralWorldObjects = [road];
   [-8.2, 8.2].forEach((x) => {
     const walk = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.18, 190), sidewalkMaterial);
     walk.position.set(x, 0.02, -66);
     walk.receiveShadow = true;
     scene.add(walk);
+    proceduralWorldObjects.push(walk);
   });
 
+  const fallbackLotMaterial = new THREE.MeshStandardMaterial({ color: 0x6e6859, roughness: 1, metalness: 0 });
+  for (const side of [-1, 1]) {
+    const lot = new THREE.Mesh(new THREE.PlaneGeometry(26.8, 190), fallbackLotMaterial);
+    lot.name = side < 0 ? "procedural-ground-lot-left" : "procedural-ground-lot-right";
+    lot.rotation.x = -Math.PI / 2;
+    lot.position.set(side * 22.58, -0.025, -66);
+    lot.receiveShadow = true;
+    scene.add(lot);
+    proceduralWorldObjects.push(lot);
+  }
+
   const movingObjects = [];
-  const laneMaterial = new THREE.MeshBasicMaterial({ color: 0xded99e });
+  const proceduralEnvironmentObjects = [];
+  const laneMaterial = new THREE.MeshBasicMaterial({ color: 0xc7c2a5, transparent: true, opacity: .62 });
   for (let index = 0; index < 28; index += 1) {
     const mark = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 3.4), laneMaterial);
     mark.position.set(0, 0.025, 7 - index * 6);
@@ -191,6 +340,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
       group.position.set(side * (10.6 + width * .25), 0, baseZ);
       group.userData.baseZ = baseZ;
       movingObjects.push(group);
+      proceduralEnvironmentObjects.push(group);
       scene.add(group);
 
       if (index % 2 === 0) {
@@ -211,12 +361,14 @@ export function createFirstPersonWorld(canvas, options = {}) {
         tree.position.set(side * 7.8, 0, baseZ + 3.5);
         tree.userData.baseZ = baseZ + 3.5;
         movingObjects.push(tree);
+        proceduralEnvironmentObjects.push(tree);
         scene.add(tree);
       }
     });
   }
 
   const cars = [];
+  const proceduralTrafficObjects = [];
   for (let index = 0; index < 7; index += 1) {
     const car = new THREE.Group();
     const color = [0xed735f, 0xe8d8bd, 0x6c9fb1, 0xf0c75e][index % 4];
@@ -238,6 +390,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
     car.userData.speedRatio = index % 2 ? .42 : 1.25;
     car.userData.visualDistance = 0;
     cars.push(car);
+    proceduralTrafficObjects.push(car);
     scene.add(car);
   }
 
@@ -293,6 +446,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
   cowl.position.set(0, -.9, -1.02);
   cowl.rotation.x = .18;
   cockpit.add(cowl);
+  const proceduralCockpitObjects = [...cockpit.children];
 
   const stopFacade = new THREE.Group();
   stopFacade.visible = false;
@@ -324,6 +478,54 @@ export function createFirstPersonWorld(canvas, options = {}) {
   stopFacade.position.set(0, 0, -11.4);
   scene.add(stopFacade);
 
+  // Kept only as a resilient fallback. The normal customer destination is the
+  // reviewed fixed gate GLB loaded by fp-asset-layers.
+  const destinationFallback = new THREE.Group();
+  destinationFallback.visible = false;
+  const destinationWall = new THREE.Mesh(
+    new THREE.BoxGeometry(8.8, 4.3, 1.2),
+    new THREE.MeshStandardMaterial({ color: 0xaaa18e, roughness: .93 })
+  );
+  destinationWall.position.y = 2.15;
+  destinationFallback.add(destinationWall);
+  const destinationDoor = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.5, 3.1),
+    new THREE.MeshStandardMaterial({ color: 0x343a39, roughness: .64, metalness: .3 })
+  );
+  destinationDoor.position.set(0, 1.55, .606);
+  destinationFallback.add(destinationDoor);
+  const destinationFallbackSign = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeLabelTexture("送到这里"), transparent: true, depthTest: false
+  }));
+  destinationFallbackSign.position.set(0, 3.72, .75);
+  destinationFallbackSign.scale.set(2.7, .64, 1);
+  destinationFallbackSign.renderOrder = 20;
+  destinationFallback.add(destinationFallbackSign);
+  destinationFallback.position.set(0, 0, -11.4);
+  scene.add(destinationFallback);
+
+  const assetLayers = createFirstPersonAssetLayers({
+    scene,
+    camera,
+    cockpit,
+    seed: Number(options.seed) || 1,
+    merchantIds: Array.isArray(options.merchantIds) ? options.merchantIds : [],
+    artLevel,
+    movingObjects,
+    cars,
+    makeLabelTexture,
+    procedural: {
+      world: proceduralWorldObjects,
+      environment: proceduralEnvironmentObjects,
+      traffic: proceduralTrafficObjects,
+      cockpit: proceduralCockpitObjects,
+      merchant: stopFacade,
+      destination: destinationFallback
+    },
+    onTelemetry: options.onAssetTelemetry,
+    onVisualReady: (runtime) => options.onVisualReady?.({ ...runtime, renderStyleVersion: renderProfile.version })
+  });
+
   const customer = new THREE.Group();
   customer.visible = false;
   const customerBody = new THREE.Mesh(
@@ -350,6 +552,22 @@ export function createFirstPersonWorld(canvas, options = {}) {
   let contextLossTimer = 0;
   let readyNotified = false;
 
+  const peripheralBlur = document.createElement("div");
+  peripheralBlur.className = "peripheral-speed-blur";
+  peripheralBlur.setAttribute("aria-hidden", "true");
+  peripheralBlur.append(document.createElement("i"), document.createElement("i"));
+  canvas.insertAdjacentElement("afterend", peripheralBlur);
+
+  function updatePeripheralBlur() {
+    const tone = TONES[currentTone];
+    const mobileScale = window.innerWidth < 640 ? .68 : 1;
+    const active = moving && !reducedMotion;
+    peripheralBlur.style.setProperty("--speed-blur", `${tone.blur * mobileScale}px`);
+    peripheralBlur.style.setProperty("--speed-blur-opacity", `${tone.blurOpacity * mobileScale}`);
+    peripheralBlur.dataset.tone = currentTone;
+    peripheralBlur.classList.toggle("is-active", active);
+  }
+
   function setStopLabel(label) {
     const old = stopSign.material.map;
     stopSign.material.map = makeLabelTexture(label);
@@ -360,28 +578,53 @@ export function createFirstPersonWorld(canvas, options = {}) {
   function setArrivalTarget(type, label) {
     currentTarget = { type, label };
     stopFacade.visible = false;
+    assetLayers.hideMerchant();
+    assetLayers.hideDestination();
+    destinationFallback.visible = false;
     customer.visible = false;
   }
 
   function revealArrival() {
     if (currentTarget.type === "cruise") {
       stopFacade.visible = false;
+      assetLayers.hideMerchant();
+      assetLayers.hideDestination();
+      destinationFallback.visible = false;
       customer.visible = false;
       return;
     }
-    setStopLabel(currentTarget.label || (currentTarget.type === "merchant" ? "商家" : "顾客"));
-    stopBuilding.material.color.set(currentTarget.type === "merchant" ? 0xf0bd69 : 0x8ca9c5);
-    stopFacade.visible = true;
-    customer.visible = currentTarget.type === "customer";
+    if (currentTarget.type === "customer") {
+      stopFacade.visible = false;
+      assetLayers.hideMerchant();
+      const destinationAssetVisible = assetLayers.revealDestination("送到这里");
+      destinationFallback.visible = !destinationAssetVisible;
+      customer.visible = true;
+      return;
+    }
+    assetLayers.hideDestination();
+    destinationFallback.visible = false;
+    setStopLabel(currentTarget.label || "商家");
+    const merchantAssetVisible = assetLayers.revealMerchant();
+    stopBuilding.material.color.set(0xf0bd69);
+    stopFacade.visible = !merchantAssetVisible;
+    customer.visible = false;
   }
 
   function setSpeedTone(speedId) {
     currentTone = TONES[speedId] ? speedId : "normal";
+    updatePeripheralBlur();
   }
 
   function setCourierPosition() {}
-  function setActiveMerchant(merchantId) {
-    if (!merchantId) stopFacade.visible = false;
+  function setActiveMerchant(merchantId, merchantLabel = "") {
+    if (!merchantId) {
+      stopFacade.visible = false;
+      assetLayers.hideMerchant();
+      assetLayers.hideDestination();
+      destinationFallback.visible = false;
+      return;
+    }
+    assetLayers.setActiveMerchant(merchantId, merchantLabel);
   }
   function setCustomer(destination) {
     if (!destination) customer.visible = false;
@@ -389,6 +632,9 @@ export function createFirstPersonWorld(canvas, options = {}) {
   function showRoute() {}
   function clearRoute() {
     stopFacade.visible = false;
+    assetLayers.hideMerchant();
+    assetLayers.hideDestination();
+    destinationFallback.visible = false;
     customer.visible = false;
   }
 
@@ -398,13 +644,17 @@ export function createFirstPersonWorld(canvas, options = {}) {
       setSpeedTone("normal");
     }
     moving = Boolean(active);
+    updatePeripheralBlur();
   }
 
   function animatePath(from, to, durationMs, speedId = "normal", onProgress) {
     setSpeedTone(speedId);
     stopFacade.visible = false;
+    assetLayers.hideDestination();
+    destinationFallback.visible = false;
     customer.visible = false;
     moving = true;
+    updatePeripheralBlur();
     const started = performance.now();
     return new Promise((resolve) => {
       function step(now) {
@@ -413,6 +663,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
         if (raw < 1) requestAnimationFrame(step);
         else {
           moving = false;
+          updatePeripheralBlur();
           revealArrival();
           resolve();
         }
@@ -464,10 +715,18 @@ export function createFirstPersonWorld(canvas, options = {}) {
 
   canvas.addEventListener("webglcontextlost", (event) => {
     event.preventDefault();
+    renderPerformance.contextLossCount += 1;
+    renderPerformance.contextLossEvents.push({
+      atMs: Math.round((performance.now() - performanceStartedAtMs) * 100) / 100
+    });
     contextLossTimer = window.setTimeout(() => options.onContextError?.(new Error("WebGL context lost")), 800);
   });
   canvas.addEventListener("webglcontextrestored", () => {
     window.clearTimeout(contextLossTimer);
+    renderPerformance.contextRestoreCount += 1;
+    renderPerformance.contextRestoreEvents.push({
+      atMs: Math.round((performance.now() - performanceStartedAtMs) * 100) / 100
+    });
     options.onContextRestored?.();
   });
 
@@ -475,6 +734,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
   let animationFrame = 0;
   function renderLoop() {
     animationFrame = requestAnimationFrame(renderLoop);
+    sampleRenderPerformance(performance.now());
     const delta = Math.min(.04, clock.getDelta());
     const elapsed = clock.elapsedTime;
     const tone = TONES[currentTone];
@@ -507,6 +767,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
     }
 
     if (stopFacade.visible) stopSign.position.y = 4.25 + Math.sin(elapsed * 2.8) * .035;
+    if (destinationFallback.visible) destinationFallbackSign.position.y = 3.72 + Math.sin(elapsed * 2.8) * .035;
     if (customer.visible) {
       const burst = performance.now() < deliveryPulseUntil;
       const scale = burst ? 1.1 + Math.sin(elapsed * 15) * .08 : 1;
@@ -525,6 +786,9 @@ export function createFirstPersonWorld(canvas, options = {}) {
     cancelAnimationFrame(animationFrame);
     window.clearTimeout(contextLossTimer);
     observer.disconnect();
+    document.removeEventListener("visibilitychange", resetVisibleFrameBoundary);
+    assetLayers.destroy();
+    peripheralBlur.remove();
     disposeObject(scene);
     renderer.dispose();
   }
@@ -543,6 +807,21 @@ export function createFirstPersonWorld(canvas, options = {}) {
     playIncident,
     playDelivery,
     cruise,
+    getVisualRuntime: () => ({
+      ...assetLayers.getRuntime(),
+      renderStyleVersion: renderProfile.version,
+      groundCoverage: {
+        version: "surrounding-ground-v1",
+        assetMeshes: assetLayers.getRuntime().worldGroundMeshCount || 0,
+        proceduralMeshesVisible: proceduralWorldObjects.filter((object) => object.name?.startsWith("procedural-ground-lot") && object.visible).length
+      },
+      peripheralBlur: {
+        active: peripheralBlur.classList.contains("is-active"),
+        tone: peripheralBlur.dataset.tone || "normal",
+        pixels: Number.parseFloat(peripheralBlur.style.getPropertyValue("--speed-blur")) || 0
+      },
+      performance: performanceSnapshot()
+    }),
     destroy
   };
 }

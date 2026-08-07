@@ -1,0 +1,44 @@
+{
+  "worldSetVersion": "world-road-sky-horizon-v3-decayed-surreal",
+  "coordinateConvention": {
+    "units": "meters",
+    "up": "+Y",
+    "forward": "+Z"
+  },
+  "roadKit": {
+    "moduleUrl": "./assets/world/road-kit-v1/road-kit-v1.mjs",
+    "baseUrl": "./assets/world/road-kit-v1/",
+    "roadLengthMeters": 190,
+    "roadWidthMeters": 14,
+    "surface": "patched",
+    "markings": "none"
+  },
+  "surroundingGround": {
+    "totalWidthMeters": 72,
+    "surface": "weathered_concrete_lots",
+    "tint": 8485224,
+    "fixedAcrossParticipants": true
+  },
+  "sky": {
+    "url": "./assets/world/sky-horizon-v1/textures/overcast-cylinder-1024x512-v1.png",
+    "radiusMeters": 88,
+    "heightMeters": 120
+  },
+  "horizons": [
+    {
+      "key": "county_town_horizon_a",
+      "url": "./assets/world/sky-horizon-v1/backgrounds/county-town-horizon-a-card-1024x512-v1.png"
+    },
+    {
+      "key": "county_town_horizon_b",
+      "url": "./assets/world/sky-horizon-v1/backgrounds/county-town-horizon-b-card-1024x512-v1.png"
+    }
+  ],
+  "experimentalPolicy": {
+    "fixedAcrossParticipants": true,
+    "readsHiddenMerchantLoad": false,
+    "readsUrgency": false,
+    "readsCustomerMessages": false,
+    "readsIncidentProbability": false
+  }
+}

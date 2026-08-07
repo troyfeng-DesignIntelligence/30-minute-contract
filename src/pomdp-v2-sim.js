@@ -5,14 +5,14 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createPomdpCourier() {
   "use strict";
 
-  const VERSION = "pomdp-courier-experimental-v2.3";
-  const LOG_SCHEMA_VERSION = "pomdp-courier-experimental-v2-log-0.5";
-  const COPY_VERSION = "pomdp-v2-rider-copy-1.5";
+  const VERSION = "pomdp-courier-experimental-v2.5";
+  const LOG_SCHEMA_VERSION = "pomdp-courier-experimental-v2-log-0.8";
+  const COPY_VERSION = "pomdp-v2-rider-copy-1.10";
   const ACTION_MODEL = "route-then-trip-pace-v1";
   const FULL_INCOME = 12;
   const LATE_INCOME = 8;
-  const MAX_CAPACITY = 10;
-  const DEFAULT_NODES_PER_WAVE = 4;
+  const MAX_CAPACITY = 14;
+  const DEFAULT_NODES_PER_WAVE = 6;
   const WAIT_WINDOW_SECONDS = 90;
   const INCIDENT_DELAY_SECONDS = 90;
   const BONUS_INCOME = FULL_INCOME;
@@ -29,10 +29,27 @@
     smooth: Object.freeze([0.55, 0.30, 0.12, 0.03]),
     busy: Object.freeze([0.10, 0.25, 0.35, 0.30])
   });
+  const EXPERIENCE_COPY = Object.freeze({
+    variable: "以前跑这家店：午高峰有时会拖一会儿。",
+    usually_fast: "以前跑这家店：大多挺快，忙起来也会排队。",
+    often_slow: "以前跑这家店：出餐不快，时间也不太准。"
+  });
+  function merchant(id, name, experienceProfileId) {
+    return Object.freeze({ id, name, experienceProfileId, experience: EXPERIENCE_COPY[experienceProfileId] });
+  }
   const MERCHANTS = Object.freeze([
-    Object.freeze({ id: "lantern", name: "灯火便当", experience: "我跑这家店的经验：午高峰有时会拖一会儿。" }),
-    Object.freeze({ id: "mint", name: "青禾轻食", experience: "我跑这家店的经验：大多挺快，忙起来也会排队。" }),
-    Object.freeze({ id: "harbor", name: "河港砂锅", experience: "我跑这家店的经验：出餐不算快，时间也不太准。" })
+    merchant("lantern", "灯火便当", "variable"),
+    merchant("oldstreet", "老街炒饭", "usually_fast"),
+    merchant("harbor", "河港砂锅", "often_slow"),
+    merchant("mint", "青禾轻食", "variable"),
+    merchant("osmanthus", "桂香米粉", "usually_fast"),
+    merchant("westbridge", "西桥烧腊", "often_slow"),
+    merchant("cloudlane", "云巷面馆", "variable"),
+    merchant("kapok", "木棉小厨", "usually_fast"),
+    merchant("northgate", "北门盖饭", "often_slow"),
+    merchant("riverbend", "河湾蒸菜", "variable"),
+    merchant("southwind", "南风馄饨", "usually_fast"),
+    merchant("sanli", "三里饭堂", "often_slow")
   ]);
   const DESTINATIONS = Object.freeze(["花园里", "滨河站", "云栖公寓", "春晓社区", "青石里", "望江台"]);
   const PROBE_SCENARIOS = Object.freeze([
@@ -104,36 +121,34 @@
 
   function balancedPlanRows(seed, waveCount) {
     const rng = mulberry32((seed ^ 0x50ad21) >>> 0);
-    const scenarioProfiles = scenarioBankForWaveCount(waveCount);
-
-    if (waveCount % (MERCHANTS.length * 2) !== 0) {
-      const fallbackProfiles = shuffle(scenarioProfiles, rng);
-      const fallbackLoads = balancedLoadStates(waveCount, rng);
-      return fallbackProfiles.map((profile, index) => ({
-        merchant: MERCHANTS[index % MERCHANTS.length],
-        loadState: fallbackLoads[index],
-        ...profile
-      }));
+    if (waveCount > MERCHANTS.length) {
+      throw new Error(`waveCount cannot exceed the ${MERCHANTS.length}-merchant catalog`);
     }
-
-    const perMerchantPerLoad = waveCount / (MERCHANTS.length * 2);
-    const rows = [];
-    for (const [loadIndex, loadState] of ["busy", "smooth"].entries()) {
-      for (const [merchantIndex, merchant] of MERCHANTS.entries()) {
-        for (let repetition = 0; repetition < perMerchantPerLoad; repetition += 1) {
-          const profileIndex = rows.length;
-          rows.push({
-            merchant,
-            loadState,
-            probeScenario: PROBE_SCENARIOS[repetition % PROBE_SCENARIOS.length],
-            tightScenario: TIGHT_SCENARIOS[0],
-            slackScenario: SLACK_SCENARIOS[(merchantIndex + loadIndex + repetition) % SLACK_SCENARIOS.length],
-            middleOrder: profileIndex % 2 === 0 ? "tight_then_slack" : "slack_then_tight"
-          });
-        }
+    const selectedMerchants = shuffle(MERCHANTS, rng).slice(0, waveCount);
+    const profiles = shuffle(scenarioBankForWaveCount(waveCount), rng);
+    let loadByMerchant;
+    if (waveCount === MERCHANTS.length) {
+      loadByMerchant = new Map();
+      for (const profileId of Object.keys(EXPERIENCE_COPY)) {
+        const profileMerchants = selectedMerchants.filter((item) => item.experienceProfileId === profileId);
+        const loads = shuffle([
+          ...Array(profileMerchants.length / 2).fill("busy"),
+          ...Array(profileMerchants.length / 2).fill("smooth")
+        ], rng);
+        profileMerchants.forEach((item, index) => loadByMerchant.set(item.id, loads[index]));
       }
+    } else {
+      const loads = balancedLoadStates(waveCount, rng);
+      loadByMerchant = new Map(selectedMerchants.map((item, index) => [
+        item.id,
+        loads[index]
+      ]));
     }
-    return shuffle(rows, rng);
+    return selectedMerchants.map((item, index) => ({
+      merchant: item,
+      loadState: loadByMerchant.get(item.id),
+      ...profiles[index]
+    }));
   }
 
   function urgencySequenceForProfile(profile, nodesPerWave) {
@@ -153,6 +168,16 @@
         { ...profile.tightScenario, urgencyRole: "tight_challenge" },
         { ...profile.slackScenario, urgencyRole: "slack_control" }
       ];
+    if (nodesPerWave === 6) {
+      return [
+        { ...probe, urgencyRole: "probe_baseline" },
+        { ...middle[0] },
+        { ...probe, urgencyRole: "probe_diagnostic" },
+        { ...middle[1] },
+        { ...probe, urgencyRole: "probe_diagnostic" },
+        { ...probe, urgencyRole: "probe_repeat" }
+      ];
+    }
     const canonical = [
       { ...probe, urgencyRole: "probe_baseline" },
       ...middle,
@@ -230,9 +255,12 @@
       : DEFAULT_NODES_PER_WAVE;
     const capacityMax = capacityForNodes(nodesPerWave);
     const plan = buildPlan(Number(seed), waveCount, nodesPerWave);
-    return {
-      version: VERSION,
-      seed: Number(seed),
+      return {
+        version: VERSION,
+        seed: Number(seed),
+        participantId: typeof options.participantId === "string" && options.participantId.trim()
+          ? options.participantId.trim()
+          : null,
       mode,
       waveCount,
       nodesPerWave,
@@ -261,6 +289,7 @@
       currentResult: null,
       wavePublicHistory: [],
       pendingDecision: null,
+      nextEventSequence: 1,
       log: [],
       startedAt: new Date().toISOString(),
       finishedAt: null
@@ -272,11 +301,19 @@
     return { wave, node: wave.nodes[state.nodeIndex] };
   }
 
+  function logEvent(state, event) {
+    const eventId = `${state.seed}-e${String(state.nextEventSequence).padStart(4, "0")}`;
+    state.nextEventSequence += 1;
+    state.log.push({ ...event, eventId });
+  }
+
   function start(state) {
     if (state.phase !== "briefing") throw new Error("game has already started");
     state.phase = "approaching_store";
-    state.log.push({
+    logEvent(state, {
       eventType: "session_start",
+      participantId: state.participantId,
+      seed: state.seed,
       simulatorVersion: VERSION,
       copyVersion: COPY_VERSION,
       actionModel: ACTION_MODEL,
@@ -294,6 +331,7 @@
       periodId: state.shiftPeriod.id,
       merchantId: publicObservation.merchant.id,
       experienceId: `merchant-experience-${publicObservation.merchant.id}-v1`,
+      experienceProfileId: publicObservation.merchant.experienceProfileId,
       platformCueId: node.scenario.kind,
       urgencyRole: node.scenario.urgencyRole,
       carriedUrgency: publicObservation.carriedUrgency,
@@ -309,7 +347,7 @@
     const openedAtMs = Date.now();
     const context = decisionContext(state, stage, extra);
     state.pendingDecision = { decisionId, stage, openedAtMs, context };
-    state.log.push({
+    logEvent(state, {
       eventType: "decision_snapshot",
       decisionId,
       waveIndex: state.waveIndex,
@@ -340,7 +378,7 @@
     state.currentResult = null;
     state.currentRouteAction = null;
     state.currentRouteDecisionId = null;
-    state.log.push({
+    logEvent(state, {
       eventType: "meal_not_ready_observation",
       waveIndex: state.waveIndex,
       nodeIndex: state.nodeIndex,
@@ -358,7 +396,7 @@
     state.currentRouteDecisionId = decision.decisionId;
     state.routeCounts[routeAction] += 1;
     state.phase = "speed_decision";
-    state.log.push({
+    logEvent(state, {
       eventType: "route_choice",
       waveIndex: state.waveIndex,
       nodeIndex: state.nodeIndex,
@@ -450,7 +488,7 @@
     state.onTime += Number(carriedOnTime) + Number(newOnTime);
     state.late += Number(!carriedOnTime) + Number(!newOnTime);
     state.phase = "resolving";
-    state.log.push({
+    logEvent(state, {
       eventType: "speed_choice",
       waveIndex: state.waveIndex,
       nodeIndex: state.nodeIndex,
@@ -461,7 +499,7 @@
       responseTimeMs: decision.responseTimeMs,
       tripPaceScope: result.tripPaceScope
     });
-    state.log.push({
+    logEvent(state, {
       eventType: "choice_outcome",
       decisionId: decision.decisionId,
       ...result,
@@ -513,7 +551,7 @@
     state.bonusMissedCount += awarded ? 0 : 1;
     state.bonusIncome += settlement.income;
     state.income += settlement.income;
-    state.log.push({ eventType: "bonus_settlement", ...settlement });
+    logEvent(state, { eventType: "bonus_settlement", ...settlement });
     return settlement;
   }
 
@@ -549,6 +587,7 @@
     return {
       version: state.version,
       seed: state.seed,
+      participantId: state.participantId,
       mode: state.mode,
       waveCount: state.waveCount,
       nodesPerWave: state.nodesPerWave,
@@ -604,8 +643,11 @@
         urgencyStructure: {
           persistentWithinSegment: ["merchant", "loadState"],
           variesByTrial: "deadline scenario",
-          fourTrialTemplate: ["probe_baseline", "tight/slack counterbalanced", "slack/tight counterbalanced", "probe_repeat"]
-        }
+          trialTemplate: state.nodesPerWave === 6
+            ? ["probe_baseline", "tight/slack counterbalanced", "probe_diagnostic", "slack/tight counterbalanced", "probe_diagnostic", "probe_repeat"]
+            : ["probe_baseline", "tight/slack counterbalanced", "slack/tight counterbalanced", "probe_repeat"]
+        },
+        merchantIdentityPolicy: "one_unique_merchant_per_segment_within_session"
       },
       log: state.log.map((event) => JSON.parse(JSON.stringify(event)))
     };
@@ -629,6 +671,8 @@
     SPEEDS,
     PREP_REMAINING_SECONDS,
     PREP_DISTRIBUTIONS,
+    EXPERIENCE_COPY,
+    MERCHANTS,
     PROBE_SCENARIOS,
     TIGHT_SCENARIOS,
     SLACK_SCENARIOS,

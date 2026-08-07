@@ -1,0 +1,201 @@
+{
+  "assetSetVersion": "county-town-tripo-v2",
+  "sourceSetVersion": "tripo-raw-candidates-2026-08-06",
+  "coordinateConvention": {
+    "runtimeUp": "+Y",
+    "runtimeForward": "+Z",
+    "units": "meters_after_runtime_normalization",
+    "origin": "grounded_center_after_runtime_normalization"
+  },
+  "assets": {
+    "facade_apartment_a": {
+      "sourceUrl": "./assets/model/apartment building 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-apartment-a.glb",
+      "category": "environment",
+      "role": "street_facade_mid",
+      "usage": "review_hold",
+      "status": "hold_open_side_geometry",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "facade_apartment_b": {
+      "sourceUrl": "./assets/model/apartment building 3d model (1).glb",
+      "url": "./assets/runtime/tripo-v1/facade-apartment-b.glb",
+      "category": "environment",
+      "role": "street_facade_mid",
+      "usage": "background_pool",
+      "merchantEligible": false,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "facade_architectural": {
+      "sourceUrl": "./assets/model/architectural building 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-architectural.glb",
+      "category": "environment",
+      "role": "street_facade_mid",
+      "usage": "background_pool",
+      "merchantEligible": true,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "facade_warehouse": {
+      "sourceUrl": "./assets/model/architectural warehouse 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-warehouse.glb",
+      "category": "environment",
+      "role": "street_facade_low",
+      "usage": "background_pool",
+      "merchantEligible": false,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 5 }
+    },
+    "facade_brick": {
+      "sourceUrl": "./assets/model/brick building facade 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-brick.glb",
+      "category": "environment",
+      "role": "street_facade_mid",
+      "usage": "background_pool",
+      "merchantEligible": true,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "facade_plain": {
+      "sourceUrl": "./assets/model/building facade 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-plain.glb",
+      "aliases": ["building facade 3d model (1).glb"],
+      "category": "environment",
+      "role": "street_facade_mid",
+      "usage": "background_pool",
+      "merchantEligible": true,
+      "status": "approved_duplicate_collapsed",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "facade_corner": {
+      "sourceUrl": "./assets/model/corner building 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-corner.glb",
+      "category": "environment",
+      "role": "street_facade_corner_tiled",
+      "usage": "background_pool",
+      "merchantEligible": true,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "rider_gloved_hand": {
+      "sourceUrl": "./assets/model/fitness dumbbell 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/rider-gloved-hand.glb",
+      "category": "rider",
+      "role": "single_gloved_hand_static",
+      "usage": "cockpit_component_hold",
+      "status": "hold_requires_pairing_and_pose_test",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "max", "meters": 0.55 }
+    },
+    "merchant_pickup_window": {
+      "sourceUrl": "./assets/model/modern fireplace 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/merchant-pickup-window.glb",
+      "category": "merchant",
+      "role": "pickup_window_insert",
+      "usage": "merchant_component",
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "width", "meters": 1.8 }
+    },
+    "rider_handlebars": {
+      "sourceUrl": "./assets/model/motorcycle handlebars 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/rider-handlebars.glb",
+      "category": "rider",
+      "role": "rider_cockpit_static",
+      "usage": "cockpit_component",
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "width", "meters": 1.05 }
+    },
+    "merchant_old_storefront": {
+      "sourceUrl": "./assets/model/old storefront building 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/merchant-old-storefront.glb",
+      "category": "merchant",
+      "role": "merchant_facade",
+      "usage": "merchant_pool",
+      "merchantEligible": true,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "vehicle_scooter_neutral": {
+      "sourceUrl": "./assets/model/scooter 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/vehicle-scooter-neutral.glb",
+      "category": "vehicle",
+      "role": "parked_scooter",
+      "usage": "traffic_pool",
+      "status": "approved_runtime",
+      "rotationYDegrees": 180,
+      "normalize": { "axis": "length", "meters": 1.85 }
+    },
+    "vehicle_sedan": {
+      "sourceUrl": "./assets/model/sedan car 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/vehicle-sedan.glb",
+      "category": "vehicle",
+      "role": "traffic_compact",
+      "usage": "traffic_pool",
+      "status": "approved_runtime",
+      "rotationYDegrees": 180,
+      "normalize": { "axis": "length", "meters": 4.4 }
+    },
+    "vegetation_tree": {
+      "sourceUrl": "./assets/model/tree 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/vegetation-tree.glb",
+      "category": "vegetation",
+      "role": "street_tree",
+      "usage": "background_pool",
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 5.5 }
+    },
+    "facade_urban": {
+      "sourceUrl": "./assets/model/urban building facade 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/facade-urban.glb",
+      "category": "environment",
+      "role": "street_facade_mid",
+      "usage": "background_pool",
+      "merchantEligible": true,
+      "status": "approved_runtime",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 9 }
+    },
+    "vehicle_van": {
+      "sourceUrl": "./assets/model/van 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/vehicle-van.glb",
+      "category": "vehicle",
+      "role": "traffic_van",
+      "usage": "traffic_pool",
+      "status": "approved_runtime",
+      "rotationYDegrees": 180,
+      "normalize": { "axis": "length", "meters": 4.5 }
+    },
+    "vehicle_ebike_yellow": {
+      "sourceUrl": "./assets/model/yellow scooter 3d model.glb",
+      "url": "./assets/runtime/tripo-v1/vehicle-ebike-yellow.glb",
+      "category": "vehicle",
+      "role": "parked_ebike",
+      "usage": "traffic_pool",
+      "status": "approved_runtime",
+      "rotationYDegrees": 180,
+      "normalize": { "axis": "length", "meters": 1.85 }
+    },
+    "destination_gate_v2": {
+      "sourceUrl": "./assets/environment/destination-gate/v2/source/destination-gate-v2-orthographic-master.png",
+      "url": "./assets/runtime/tripo-v1/destination-gate-v2.glb",
+      "category": "destination",
+      "role": "customer_delivery_gate",
+      "usage": "fixed_destination",
+      "status": "approved_runtime_derived_from_orthographic_reference",
+      "rotationYDegrees": 0,
+      "normalize": { "axis": "height", "meters": 4.6 }
+    }
+  }
+}

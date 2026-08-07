@@ -1,0 +1,32 @@
+{
+  "signageSetVersion": "county-shop-signage-v1",
+  "image": {
+    "url": "./assets/signage/county-shop-signs-v1.png",
+    "widthPx": 1536,
+    "heightPx": 1024,
+    "colorSpace": "srgb"
+  },
+  "merchantSigns": {
+    "lantern": { "label": "灯火便当", "rectPx": [22, 63, 468, 183] },
+    "oldstreet": { "label": "老街炒饭", "rectPx": [532, 63, 470, 183] },
+    "harbor": { "label": "河港砂锅", "rectPx": [1044, 63, 468, 183] },
+    "mint": { "label": "青禾轻食", "rectPx": [22, 296, 468, 183] },
+    "osmanthus": { "label": "桂香米粉", "rectPx": [532, 296, 470, 183] },
+    "westbridge": { "label": "西桥烧腊", "rectPx": [1044, 296, 468, 183] },
+    "cloudlane": { "label": "云巷面馆", "rectPx": [22, 530, 468, 182] },
+    "kapok": { "label": "木棉小厨", "rectPx": [532, 530, 470, 182] },
+    "northgate": { "label": "北门盖饭", "rectPx": [1044, 530, 468, 182] },
+    "riverbend": { "label": "河湾蒸菜", "rectPx": [22, 762, 468, 182] },
+    "southwind": { "label": "南风馄饨", "rectPx": [532, 762, 470, 182] },
+    "sanli": { "label": "三里饭堂", "rectPx": [1044, 762, 468, 182] }
+  },
+  "assetAnchors": {
+    "facade_architectural": { "x": 0, "y": 4.02, "width": 5.9, "height": 1.2, "depthOffset": 0.16 },
+    "facade_brick": { "x": 0, "y": 3.42, "width": 5.55, "height": 0.86, "depthOffset": 0.16 },
+    "facade_plain": { "x": 0, "y": 3.25, "width": 4.35, "height": 0.82, "depthOffset": 0.16 },
+    "facade_corner": { "x": 0, "y": 2.08, "width": 5.4, "height": 0.88, "depthOffset": 0.18 },
+    "merchant_old_storefront": { "x": 0, "y": 3.08, "width": 4.7, "height": 1.08, "depthOffset": 0.16 },
+    "facade_urban": { "x": 0, "y": 3.23, "width": 5.05, "height": 0.84, "depthOffset": 0.16 }
+  },
+  "defaultAnchor": { "x": 0, "y": 3.25, "width": 5.2, "height": 1.15, "depthOffset": 0.16 }
+}
