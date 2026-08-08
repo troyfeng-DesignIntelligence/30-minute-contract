@@ -20,7 +20,11 @@
         <div id="objectiveChip" class="objective-chip">
           <small id="segmentLabel">午高峰 · 第1/12家</small>
           <strong id="merchantLabel">当前店铺：灯火便当</strong>
-          <span id="storeProgressLabel">本店第 1 / 6 组订单</span>
+          <div id="storeProgress" class="store-progress" role="img" aria-label="本店进度：第 1 / 6 组">
+            <span id="storeProgressTitle">本店进度</span>
+            <span id="storeProgressNodes" class="store-progress-nodes" aria-hidden="true"></span>
+            <small id="storeProgressLabel">1/6组</small>
+          </div>
           <span id="objectiveLabel" class="objective-state">去店里取餐</span>
       </div>
       <div class="status-strip">
@@ -38,8 +42,8 @@
         <small>刚才的取餐记录</small>
         <strong id="notebookMerchant">灯火便当</strong>
         <div class="notebook-rule" aria-hidden="true"></div>
-        <p id="historyFact1">上一次：短等后取到了餐</p>
-        <p id="historyFact2" class="is-hidden"></p>
+        <p id="historyFact1" class="history-fact-row">上一次：没等多久，取到餐了</p>
+        <p id="historyFact2" class="history-fact-row is-hidden"></p>
         <em>只记发生过的事，不替你判断</em>
       </div>
     </aside>
@@ -54,7 +58,7 @@
       <div class="decision-copy">
         <span class="eyebrow">到店了</span>
         <h1 id="routeDecisionTitle">新餐还没好。你怎么安排？</h1>
-          <p id="experienceText">该店惯例：午高峰有时会拖一会儿。</p>
+          <p id="experienceText">你以前午高峰跑这家店：有时很快，有时会拖一会儿。</p>
         </div>
       <div class="time-glance" aria-label="订单紧迫程度">
         <p class="glance-legend">剩余时间</p>
@@ -70,10 +74,10 @@
         </article>
       </div>
       <div id="routeActions" class="route-actions">
-        <button type="button" data-route="wait_briefly">
+        <button type="button" data-route="wait_until_ready">
           <span class="action-icon">◷</span>
-          <strong>先等一小会</strong>
-          <small>等一会新单，餐好了就一起送；如果到点还没出餐，马上先送手上的这份。</small>
+          <strong>等餐做好再一起送</strong>
+          <small>留在店里等到新餐做好，再把手上这单和新单一起送。</small>
         </button>
         <button type="button" data-route="deliver_carried_first">
           <span class="action-icon">➜</span>
@@ -102,14 +106,15 @@
     <aside id="rewardBurst" class="reward-burst is-hidden" aria-live="polite">
       <span id="rewardBurstLabel">收入入账</span>
       <strong id="rewardBurstValue">+¥24</strong>
+      <em id="rewardBurstLoss" class="is-hidden">超时少赚 ¥4</em>
     </aside>
 
     <section id="resultCard" class="result-card is-hidden" aria-labelledby="resultTitle">
       <span class="eyebrow">跑完一单</span>
       <h2 id="resultTitle">两单都送到了</h2>
       <div id="resultGrid" class="result-grid">
-        <article><span>手上这单</span><strong id="carriedResult">准时</strong></article>
-        <article><span>新取这单</span><strong id="newResult">准时</strong></article>
+        <article><span>手上这单</span><strong id="carriedResult">准时</strong><small id="carriedLateLoss" class="late-income-loss is-hidden">比准时少赚 ¥4</small></article>
+        <article><span>新取这单</span><strong id="newResult">准时</strong><small id="newLateLoss" class="late-income-loss is-hidden">比准时少赚 ¥4</small></article>
         <article><span>路上</span><strong id="incidentResult">未出事故</strong></article>
         <article><span>赚到</span><strong id="incomeResult">+¥24</strong></article>
       </div>
@@ -127,7 +132,7 @@
       <div class="start-copy">
         <span class="eyebrow">午高峰 · 骑手上岗</span>
         <h1>洪流骑手</h1>
-        <p>今天你来当一次外卖骑手，目标就是多赚钱。平台已经排好订单，导航会自动带你到取餐点和送餐地，但你需要决定是否等商家出餐和送餐的速度。</p>
+        <p>今天你来当一次外卖骑手，目标就是多赚钱。平台已经排好订单，导航会自动带你到取餐点和送餐地；到了店，你决定等到餐好再一起送，还是先送手上的，再选择整趟骑多快。</p>
         <button id="startButton" class="primary-button" type="button">下面是试跑环节 <span>→</span></button>
         <small id="modeDescription">正式班次：2家店 · 每家6组</small>
       </div>
@@ -159,18 +164,18 @@
         <div class="step-progress"><span id="notebookTutorialStep">上岗提示 · 8/12</span><i><b></b></i></div>
         <span class="eyebrow">跑过一组以后</span>
         <h2 id="notebookTutorialTitle">先认一下骑手笔记</h2>
-        <p>刚才取餐时发生了什么，会单独记在这里。下一次再到这家店，你不用只靠记忆。</p>
+        <p>接下来还是这家店。刚才实际发生的取餐情况会记在这里，能辅助你继续判断今天这一阵的情况。</p>
         <div class="notebook-tutorial-layout">
           <div class="notebook-tutorial-page" aria-label="骑手笔记示例">
             <small>刚才的取餐记录</small>
             <strong id="notebookTutorialMerchant">当前店铺</strong>
             <i aria-hidden="true"></i>
-            <p id="notebookTutorialFact1">上一次：刚才的情况已经记下</p>
-            <p id="notebookTutorialFact2" class="is-hidden"></p>
+            <p id="notebookTutorialFact1" class="history-fact-row">上一次：刚才的情况已经记下</p>
+            <p id="notebookTutorialFact2" class="history-fact-row is-hidden"></p>
           </div>
           <div class="notebook-tutorial-rules">
-            <article><b>它会记</b><span>本店最近两次实际发生的取餐结果。</span></article>
-            <article><b>它不会替你判断</b><span>不会直接说店里现在忙不忙。你还要结合眼前两单，再决定等不等。</span></article>
+            <article><b>表情怎么读</b><span>表情大致表示这次等得轻松还是很久；带折返箭头表示送完回来后才取餐。</span></article>
+            <article><b>它不会替你判断</b><span>这里不会直接写店里现在忙不忙。</span></article>
             <article><b>换店会重开</b><span>到了下一家店，旧店的笔记不会带过去。</span></article>
           </div>
         </div>
@@ -188,6 +193,8 @@
 
     <pre id="debugPanel" class="debug-panel is-hidden" aria-hidden="true"></pre>
   </main>
+  <script src="./src/pomdp-v2-mainline.js"></script>
+  <script src="./src/pomdp-v2-history-presentation.js"></script>
   <script src="./src/pomdp-v2-sim.js"></script>
   <script src="./src/experiment-telemetry.js"></script>
   <script type="module" src="./src/pomdp-v2-app.js"></script>

@@ -1,24 +1,35 @@
 (function attachPomdpCourier(root, factory) {
-  const api = factory();
+  const mainline = typeof module === "object" && module.exports
+    ? require("./pomdp-v2-mainline.js")
+    : root.PomdpV2Mainline;
+  const api = factory(mainline);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.PomdpCourierV2 = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createPomdpCourier() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function createPomdpCourier(Mainline) {
   "use strict";
 
-  const VERSION = "pomdp-courier-experimental-v2.5";
-  const LOG_SCHEMA_VERSION = "pomdp-courier-experimental-v2-log-0.8";
-  const COPY_VERSION = "pomdp-v2-rider-copy-1.10";
-  const ACTION_MODEL = "route-then-trip-pace-v1";
-  const FULL_INCOME = 12;
-  const LATE_INCOME = 8;
-  const MAX_CAPACITY = 14;
-  const DEFAULT_NODES_PER_WAVE = 6;
-  const WAIT_WINDOW_SECONDS = 90;
-  const INCIDENT_DELAY_SECONDS = 90;
-  const BONUS_INCOME = FULL_INCOME;
-  const SHIFT_PERIOD = Object.freeze({ id: "lunch_peak", label: "午高峰" });
-  const MODES = Object.freeze({ preview: 2, pilot: 4, experiment: 12 });
-  const ROUTE_ACTIONS = Object.freeze(["wait_briefly", "deliver_carried_first"]);
+  if (!Mainline?.protocol || !Mainline?.structure || !Mainline?.task) {
+    throw new Error("POMDP mainline manifest must load before the simulator");
+  }
+
+  const PROTOCOL_VERSION = Mainline.protocol.id;
+  const VERSION = Mainline.protocol.simulatorVersion;
+  const LOG_SCHEMA_VERSION = Mainline.protocol.logSchemaVersion;
+  const COPY_VERSION = Mainline.protocol.copyVersion;
+  const EXPERIENCE_COPY_VERSION = Mainline.protocol.experienceCopyVersion;
+  const ACTION_MODEL = Mainline.protocol.actionModel;
+  const FULL_INCOME = Mainline.task.fullIncome;
+  const LATE_INCOME = Mainline.task.lateIncome;
+  const MAX_CAPACITY = Mainline.task.maxCapacity;
+  const DEFAULT_NODES_PER_WAVE = Mainline.structure.nodesPerWave;
+  const WAIT_FEEDBACK_BANDS_SECONDS = Object.freeze({ shortMax: 90, mediumMax: 180 });
+  const INCIDENT_DELAY_SECONDS = Mainline.task.incidentDelaySeconds;
+  const INCIDENT_CAPACITY_COST = Mainline.task.incidentCapacityCost;
+  const BONUS_INCOME = Mainline.task.bonusIncome;
+  const WAIT_POLICY = Mainline.task.waitPolicy;
+  const SHIFT_PERIOD = Mainline.structure.shiftPeriod;
+  const MODES = Mainline.structure.modes;
+  const ROUTE_ACTIONS = Object.freeze(["wait_until_ready", "deliver_carried_first"]);
   const SPEEDS = Object.freeze({
     normal: Object.freeze({ id: "normal", label: "稳骑", travelFactor: 1, incidentChance: 0.02 }),
     rush: Object.freeze({ id: "rush", label: "赶路", travelFactor: 0.82, incidentChance: 0.125 }),
@@ -30,30 +41,55 @@
     busy: Object.freeze([0.10, 0.25, 0.35, 0.30])
   });
   const EXPERIENCE_COPY = Object.freeze({
-    variable: "以前跑这家店：午高峰有时会拖一会儿。",
-    usually_fast: "以前跑这家店：大多挺快，忙起来也会排队。",
-    often_slow: "以前跑这家店：出餐不快，时间也不太准。"
+    usually_fast: Object.freeze([
+      Object.freeze({ id: "usually_fast_01", text: "你以前午高峰跑这家店：大多数时候出餐比较快。" }),
+      Object.freeze({ id: "usually_fast_02", text: "你以前午高峰跑这家店：通常不用等太久。" }),
+      Object.freeze({ id: "usually_fast_03", text: "你以前午高峰跑这家店：多数时候到了没多久就能取餐。" }),
+      Object.freeze({ id: "usually_fast_04", text: "你以前午高峰跑这家店：一般出餐挺利索。" })
+    ]),
+    variable: Object.freeze([
+      Object.freeze({ id: "variable_01", text: "你以前午高峰跑这家店：有时很快，有时会拖一会儿。" }),
+      Object.freeze({ id: "variable_02", text: "你以前午高峰跑这家店：出餐快慢不太稳定。" }),
+      Object.freeze({ id: "variable_03", text: "你以前午高峰跑这家店：有时不用久等，有时要等上一阵。" }),
+      Object.freeze({ id: "variable_04", text: "你以前午高峰跑这家店：每次出餐速度不太一样。" })
+    ]),
+    often_slow: Object.freeze([
+      Object.freeze({ id: "often_slow_01", text: "你以前午高峰跑这家店：大多数时候出餐偏慢。" }),
+      Object.freeze({ id: "often_slow_02", text: "你以前午高峰跑这家店：通常要等上一会儿。" }),
+      Object.freeze({ id: "often_slow_03", text: "你以前午高峰跑这家店：多数时候不会马上出餐。" }),
+      Object.freeze({ id: "often_slow_04", text: "你以前午高峰跑这家店：一般出餐不算快。" })
+    ])
   });
-  function merchant(id, name, experienceProfileId) {
-    return Object.freeze({ id, name, experienceProfileId, experience: EXPERIENCE_COPY[experienceProfileId] });
+  function merchant(id, name, experienceProfileId, experienceCopyIndex) {
+    const copy = EXPERIENCE_COPY[experienceProfileId]?.[experienceCopyIndex];
+    if (!copy) throw new Error(`missing experience copy for ${experienceProfileId}:${experienceCopyIndex}`);
+    return Object.freeze({
+      id,
+      name,
+      experienceProfileId,
+      experienceCopyId: copy.id,
+      experienceCopyVersion: EXPERIENCE_COPY_VERSION,
+      experienceText: copy.text,
+      experience: copy.text
+    });
   }
   const MERCHANTS = Object.freeze([
-    merchant("lantern", "灯火便当", "variable"),
-    merchant("oldstreet", "老街炒饭", "usually_fast"),
-    merchant("harbor", "河港砂锅", "often_slow"),
-    merchant("mint", "青禾轻食", "variable"),
-    merchant("osmanthus", "桂香米粉", "usually_fast"),
-    merchant("westbridge", "西桥烧腊", "often_slow"),
-    merchant("cloudlane", "云巷面馆", "variable"),
-    merchant("kapok", "木棉小厨", "usually_fast"),
-    merchant("northgate", "北门盖饭", "often_slow"),
-    merchant("riverbend", "河湾蒸菜", "variable"),
-    merchant("southwind", "南风馄饨", "usually_fast"),
-    merchant("sanli", "三里饭堂", "often_slow")
+    merchant("lantern", "灯火便当", "variable", 0),
+    merchant("oldstreet", "老街炒饭", "usually_fast", 0),
+    merchant("harbor", "河港砂锅", "often_slow", 0),
+    merchant("mint", "青禾轻食", "variable", 1),
+    merchant("osmanthus", "桂香米粉", "usually_fast", 1),
+    merchant("westbridge", "西桥烧腊", "often_slow", 1),
+    merchant("cloudlane", "云巷面馆", "variable", 2),
+    merchant("kapok", "木棉小厨", "usually_fast", 2),
+    merchant("northgate", "北门盖饭", "often_slow", 2),
+    merchant("riverbend", "河湾蒸菜", "variable", 3),
+    merchant("southwind", "南风馄饨", "usually_fast", 3),
+    merchant("sanli", "三里饭堂", "often_slow", 3)
   ]);
   const DESTINATIONS = Object.freeze(["花园里", "滨河站", "云栖公寓", "春晓社区", "青石里", "望江台"]);
   const PROBE_SCENARIOS = Object.freeze([
-    Object.freeze({ deadlineA: 300, deadlineB: 360, kind: "history_probe" }),
+    Object.freeze({ deadlineA: 300, deadlineB: 330, kind: "history_probe" }),
     Object.freeze({ deadlineA: 330, deadlineB: 450, kind: "history_probe" })
   ]);
   const TIGHT_SCENARIOS = Object.freeze([
@@ -67,6 +103,12 @@
 
   function clamp(value, lower, upper) {
     return Math.min(upper, Math.max(lower, value));
+  }
+
+  function waitFeedbackOutcome(waitedSeconds) {
+    if (waitedSeconds <= WAIT_FEEDBACK_BANDS_SECONDS.shortMax) return "ready_after_short_wait";
+    if (waitedSeconds <= WAIT_FEEDBACK_BANDS_SECONDS.mediumMax) return "ready_after_medium_wait";
+    return "ready_after_long_wait";
   }
 
   function mulberry32(seed) {
@@ -256,6 +298,7 @@
     const capacityMax = capacityForNodes(nodesPerWave);
     const plan = buildPlan(Number(seed), waveCount, nodesPerWave);
       return {
+        protocolVersion: PROTOCOL_VERSION,
         version: VERSION,
         seed: Number(seed),
         participantId: typeof options.participantId === "string" && options.participantId.trim()
@@ -282,7 +325,7 @@
       bonusMissedCount: 0,
       bonusSettlements: 0,
       lastBonusSettlement: null,
-      routeCounts: { wait_briefly: 0, deliver_carried_first: 0 },
+      routeCounts: { wait_until_ready: 0, deliver_carried_first: 0 },
       speedCounts: { normal: 0, rush: 0, sprint: 0 },
       currentRouteAction: null,
       currentRouteDecisionId: null,
@@ -312,10 +355,12 @@
     state.phase = "approaching_store";
     logEvent(state, {
       eventType: "session_start",
+      protocolVersion: PROTOCOL_VERSION,
       participantId: state.participantId,
       seed: state.seed,
       simulatorVersion: VERSION,
       copyVersion: COPY_VERSION,
+      experienceCopyVersion: EXPERIENCE_COPY_VERSION,
       actionModel: ACTION_MODEL,
       shiftPeriod: { ...state.shiftPeriod },
       at: new Date().toISOString()
@@ -330,8 +375,11 @@
       stage,
       periodId: state.shiftPeriod.id,
       merchantId: publicObservation.merchant.id,
-      experienceId: `merchant-experience-${publicObservation.merchant.id}-v1`,
+      experienceId: `merchant-experience-${publicObservation.merchant.id}-v2`,
       experienceProfileId: publicObservation.merchant.experienceProfileId,
+      experienceCopyId: publicObservation.merchant.experienceCopyId,
+      experienceCopyVersion: publicObservation.merchant.experienceCopyVersion,
+      experienceText: publicObservation.merchant.experienceText,
       platformCueId: node.scenario.kind,
       urgencyRole: node.scenario.urgencyRole,
       carriedUrgency: publicObservation.carriedUrgency,
@@ -428,19 +476,12 @@
     let feedbackSource;
     let feedbackOutcome;
 
-    if (routeAction === "wait_briefly") {
-      waitSeconds = Math.min(WAIT_WINDOW_SECONDS, node.prepRemainingSeconds);
-      const readyWithinWindow = node.prepRemainingSeconds <= WAIT_WINDOW_SECONDS;
-      feedbackSource = "wait_window";
-      feedbackOutcome = readyWithinWindow ? "ready_within_window" : "still_not_ready";
+    if (routeAction === "wait_until_ready") {
+      waitSeconds = node.prepRemainingSeconds;
+      feedbackSource = "wait_until_ready";
+      feedbackOutcome = waitFeedbackOutcome(waitSeconds);
       carriedDeliveredAt = waitSeconds + rideToCustomer + incidentDelay;
-      if (readyWithinWindow) {
-        newDeliveredAt = carriedDeliveredAt + deliverNewOrder;
-      } else {
-        const backAtStore = carriedDeliveredAt + returnToStore;
-        const remainingWait = Math.max(0, node.prepRemainingSeconds - backAtStore);
-        newDeliveredAt = backAtStore + remainingWait + deliverNewOrder;
-      }
+      newDeliveredAt = carriedDeliveredAt + deliverNewOrder;
     } else {
       carriedDeliveredAt = rideToCustomer + incidentDelay;
       const backAtStore = carriedDeliveredAt + returnToStore;
@@ -468,7 +509,7 @@
       tripPaceScope: "all_road_legs_until_both_orders_delivered",
       incident,
       incidentDelay,
-      incidentCapacityCost: incident ? 1 : 0,
+      incidentCapacityCost: incident ? INCIDENT_CAPACITY_COST : 0,
       feedbackSource,
       feedbackOutcome,
       waitedSeconds: waitSeconds,
@@ -586,6 +627,7 @@
     const truth = state.phase === "summary" ? null : currentTruth(state);
     return {
       version: state.version,
+      protocolVersion: state.protocolVersion,
       seed: state.seed,
       participantId: state.participantId,
       mode: state.mode,
@@ -624,17 +666,26 @@
       schemaVersion: LOG_SCHEMA_VERSION,
       session: snapshot(state),
       configuration: {
+        protocolVersion: PROTOCOL_VERSION,
+        protocolStructure: {
+          trainingTrials: Mainline.structure.trainingTrials,
+          pilotTrials: Mainline.structure.pilotTrials,
+          experimentTrials: Mainline.structure.experimentTrials
+        },
+        researchScope: { ...Mainline.researchScope },
         simulatorVersion: VERSION,
         copyVersion: COPY_VERSION,
+        experienceCopyVersion: EXPERIENCE_COPY_VERSION,
         actionModel: ACTION_MODEL,
         waveCount: state.waveCount,
         nodesPerWave: state.nodesPerWave,
         capacityMax: state.capacityMax,
         fullIncome: FULL_INCOME,
         lateIncome: LATE_INCOME,
-        waitWindowSeconds: WAIT_WINDOW_SECONDS,
+        waitPolicy: WAIT_POLICY,
+        waitFeedbackBandsSeconds: { ...WAIT_FEEDBACK_BANDS_SECONDS },
         incidentDelaySeconds: INCIDENT_DELAY_SECONDS,
-        incidentCapacityCost: 1,
+        incidentCapacityCost: INCIDENT_CAPACITY_COST,
         incidentConsequences: ["current_trip_delay", "future_order_capacity_loss"],
         bonusIncome: BONUS_INCOME,
         shiftPeriod: { ...SHIFT_PERIOD },
@@ -647,30 +698,42 @@
             ? ["probe_baseline", "tight/slack counterbalanced", "probe_diagnostic", "slack/tight counterbalanced", "probe_diagnostic", "probe_repeat"]
             : ["probe_baseline", "tight/slack counterbalanced", "slack/tight counterbalanced", "probe_repeat"]
         },
-        merchantIdentityPolicy: "one_unique_merchant_per_segment_within_session"
+        merchantIdentityPolicy: "one_unique_merchant_per_segment_within_session",
+        experienceCopyManifest: state.plan.map((wave) => ({
+          merchantId: wave.merchant.id,
+          experienceProfileId: wave.merchant.experienceProfileId,
+          experienceCopyId: wave.merchant.experienceCopyId,
+          experienceText: wave.merchant.experienceText
+        }))
       },
       log: state.log.map((event) => JSON.parse(JSON.stringify(event)))
     };
   }
 
   return {
+    MAINLINE: Mainline,
+    PROTOCOL_VERSION,
     VERSION,
     LOG_SCHEMA_VERSION,
     COPY_VERSION,
+    EXPERIENCE_COPY_VERSION,
     ACTION_MODEL,
     FULL_INCOME,
     LATE_INCOME,
     MAX_CAPACITY,
     DEFAULT_NODES_PER_WAVE,
-    WAIT_WINDOW_SECONDS,
+    WAIT_FEEDBACK_BANDS_SECONDS,
     INCIDENT_DELAY_SECONDS,
+    INCIDENT_CAPACITY_COST,
     BONUS_INCOME,
+    WAIT_POLICY,
     SHIFT_PERIOD,
     MODES,
     ROUTE_ACTIONS,
     SPEEDS,
     PREP_REMAINING_SECONDS,
     PREP_DISTRIBUTIONS,
+    waitFeedbackOutcome,
     EXPERIENCE_COPY,
     MERCHANTS,
     PROBE_SCENARIOS,

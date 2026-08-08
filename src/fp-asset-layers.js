@@ -298,6 +298,8 @@ export function createFirstPersonAssetLayers({
         root.userData.speedRatio = index % 2 ? 0.42 : 1.25;
         root.userData.visualDistance = 0;
         root.userData.visualSlot = slot;
+        root.userData.roadTrafficEnabled = true;
+        root.visible = false;
         stagedCars.push(root);
         return root;
       }));
@@ -307,6 +309,7 @@ export function createFirstPersonAssetLayers({
       movingObjects.push(...stagedMoving);
       cars.push(...stagedCars);
       setVisible(procedural.environment, false);
+      procedural.traffic.forEach((root) => { root.userData.roadTrafficEnabled = false; });
       setVisible(procedural.traffic, false);
     } catch (error) {
       // Registry clones share geometry/material resources with the cached GLB

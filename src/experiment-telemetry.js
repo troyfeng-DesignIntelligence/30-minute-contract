@@ -1,12 +1,16 @@
 (function attachExperimentTelemetry(root, factory) {
-  const api = factory(root);
+  const mainline = typeof module === "object" && module.exports
+    ? require("./pomdp-v2-mainline.js")
+    : root.PomdpV2Mainline;
+  const api = factory(root, mainline);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.PomdpExperimentTelemetry = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createTelemetryApi(root) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function createTelemetryApi(root, Mainline) {
   "use strict";
 
-  const VERSION = "pomdp-experiment-telemetry-v1";
-  const BUILD_ID = "pomdp-v2.5-pilot-instrumentation-20260807.4";
+  if (!Mainline?.protocol) throw new Error("POMDP mainline manifest must load before telemetry");
+  const VERSION = Mainline.protocol.telemetryVersion;
+  const BUILD_ID = Mainline.protocol.buildId;
 
   function finiteNonNegative(value) {
     return Number.isFinite(value) && value >= 0;

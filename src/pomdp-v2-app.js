@@ -2,6 +2,8 @@ import { createFirstPersonWorld } from "./fp-render.js";
 
 const Sim = window.PomdpCourierV2;
 if (!Sim) throw new Error("PomdpCourierV2 failed to load");
+const HistoryPresentation = window.PomdpHistoryPresentation;
+if (!HistoryPresentation) throw new Error("PomdpHistoryPresentation failed to load");
 const Telemetry = window.PomdpExperimentTelemetry;
 if (!Telemetry) throw new Error("PomdpExperimentTelemetry failed to load");
 
@@ -43,11 +45,11 @@ const visualMerchantIds = [...new Set(
 const byId = (id) => document.getElementById(id);
 const els = Object.fromEntries([
   "pomdpGame", "gameCanvas", "webglFallback", "hud", "objectiveChip", "segmentLabel", "objectiveLabel",
-  "merchantLabel", "storeProgressLabel", "capacityStatus", "capacityCells", "incomeStatus", "incomeValue", "travelPrompt", "travelIcon", "travelTitle", "travelDetail",
+  "merchantLabel", "storeProgress", "storeProgressTitle", "storeProgressNodes", "storeProgressLabel", "capacityStatus", "capacityCells", "incomeStatus", "incomeValue", "travelPrompt", "travelIcon", "travelTitle", "travelDetail",
   "travelProgress", "routeDecision", "experienceText", "riderNotebook", "notebookMerchant", "historyFact1", "historyFact2", "carriedUrgencyLabel", "newUrgencyLabel",
   "carriedUrgency", "newUrgency", "carriedDestination", "platformText", "carriedOrderCard", "newOrderCard", "routeActions", "speedDecision",
   "chosenRouteText", "goButton", "feedbackCard", "feedbackIcon", "feedbackKicker", "feedbackTitle",
-  "feedbackText", "rewardBurst", "rewardBurstLabel", "rewardBurstValue", "resultCard", "resultTitle", "carriedResult", "newResult", "incidentResult",
+  "feedbackText", "rewardBurst", "rewardBurstLabel", "rewardBurstValue", "rewardBurstLoss", "resultCard", "resultTitle", "carriedResult", "carriedLateLoss", "newResult", "newLateLoss", "incidentResult",
   "incomeResult", "resultGrid", "incidentConsequences", "incidentDelayResult", "incidentCapacityResult", "continueButton", "startScreen", "startButton", "modeDescription", "briefingModal",
   "briefingStep", "briefingProgress", "briefingKicker", "briefingTitle", "briefingLead",
   "briefingVisual", "briefingNext", "tutorialCoach", "coachStep", "coachTitle", "coachText", "coachNext",
@@ -149,9 +151,9 @@ const BRIEFING = Object.freeze([
     section: "选择",
     kicker: "新餐还没好时",
     title: "留下等，还是先送？",
-    lead: "这里没有永远正确的按钮。手上订单很赶时，先送更稳；觉得餐快好了、两单时间也够时，等一会可能少跑一次折返。",
+    lead: "这里没有永远正确的按钮。手上订单很赶时，先送更稳；觉得餐快好了、两单时间也够时，留下等可能少跑一次折返。",
     cards: [
-      ["先等一小会", "不是一直等到出餐", "餐好了就一起走；到点还没好，就按原计划先送手上的。"],
+      ["等餐做好再一起送", "会一直等到出餐", "餐一做好就一起走，可以少跑一次折返，但手上的单也会跟着等。"],
       ["先送手上这单", "现在就离店", "店家继续做餐。你送完以后回来取，但会多跑一段路。"],
       ["现场结果", "会直接告诉你", "你会看到餐有没有等到、回来时有没有做好，不用猜发生了什么。"]
     ]
@@ -190,6 +192,7 @@ let notebookTutorialResolve = null;
 let notebookTutorialShown = false;
 let lastCapacity = null;
 let lastIncome = 0;
+let incomeAnimationFrame = 0;
 let rewardTimer = 0;
 const TRAINING_STEP_COUNT = 12;
 
@@ -204,13 +207,38 @@ function replayAnimation(element, className) {
   element.classList.add(className);
 }
 
-function showReward(value, label = "收入入账") {
+function showReward(value, label = "收入入账", lateLoss = 0) {
   window.clearTimeout(rewardTimer);
   els.rewardBurstLabel.textContent = label;
   els.rewardBurstValue.textContent = `+¥${value}`;
+  els.rewardBurstLoss.textContent = `超时少赚 ¥${lateLoss}`;
+  els.rewardBurstLoss.classList.toggle("is-hidden", lateLoss <= 0);
+  els.rewardBurst.classList.toggle("has-late-loss", lateLoss > 0);
   show(els.rewardBurst);
   replayAnimation(els.rewardBurst, "is-playing");
-  rewardTimer = window.setTimeout(() => hide(els.rewardBurst), fastMotion ? 900 : 1250);
+  rewardTimer = window.setTimeout(() => hide(els.rewardBurst), fastMotion ? 1050 : 1680);
+}
+
+function renderIncome(targetIncome) {
+  const previousIncome = lastIncome;
+  const increased = targetIncome > previousIncome;
+  window.cancelAnimationFrame(incomeAnimationFrame);
+  if (!increased || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    els.incomeValue.textContent = `¥${targetIncome}`;
+  } else {
+    const started = performance.now();
+    const animationDuration = fastMotion ? 180 : 560;
+    const tick = (now) => {
+      const progress = Math.min(1, (now - started) / animationDuration);
+      const eased = 1 - ((1 - progress) ** 3);
+      const displayed = Math.round(previousIncome + (targetIncome - previousIncome) * eased);
+      els.incomeValue.textContent = `¥${displayed}`;
+      if (progress < 1) incomeAnimationFrame = requestAnimationFrame(tick);
+    };
+    incomeAnimationFrame = requestAnimationFrame(tick);
+  }
+  if (increased) replayAnimation(els.incomeStatus, "is-earning");
+  lastIncome = targetIncome;
 }
 
 function setUrgencyTone(card, value) {
@@ -252,12 +280,8 @@ function showNotebookTutorial(snapshot) {
   const recent = (snapshot.visibleHistory || []).slice(-2).reverse();
   els.notebookTutorialStep.textContent = `上岗提示 · ${trainingStep}/${TRAINING_STEP_COUNT}`;
   els.notebookTutorialMerchant.textContent = snapshot.currentNode?.merchant?.name || "当前店铺";
-  els.notebookTutorialFact1.textContent = recent[0]
-    ? `上一次：${historyFactText(recent[0])}`
-    : "上一次：刚才的情况已经记下";
-  els.notebookTutorialFact2.textContent = recent[1]
-    ? `上上次：${historyFactText(recent[1])}`
-    : "";
+  renderHistoryFactRow(els.notebookTutorialFact1, recent[0], "上一次", "刚才的情况已经记下");
+  if (recent[1]) renderHistoryFactRow(els.notebookTutorialFact2, recent[1], "上上次");
   els.notebookTutorialFact2.classList.toggle("is-hidden", !recent[1]);
   show(els.notebookTutorialModal);
   return new Promise((resolve) => { notebookTutorialResolve = resolve; });
@@ -302,20 +326,33 @@ function renderCapacity(snapshot) {
   lastCapacity = snapshot.capacityRemaining;
 }
 
+function renderStoreProgress(snapshot) {
+  const count = Math.max(1, Number(snapshot.nodesPerWave) || 1);
+  const currentIndex = Math.min(count - 1, Math.max(0, Number(snapshot.nodeIndex) || 0));
+  const title = trainingActive ? "试跑进度" : "本店进度";
+  els.storeProgressTitle.textContent = title;
+  els.storeProgressLabel.textContent = `${currentIndex + 1}/${count}组`;
+  els.storeProgress.setAttribute("aria-label", `${title}：第 ${currentIndex + 1} / ${count} 组`);
+  els.storeProgressNodes.style.setProperty("--progress-count", count);
+  els.storeProgressNodes.replaceChildren(...Array.from({ length: count }, (_, index) => {
+    const node = document.createElement("i");
+    node.className = index < currentIndex
+      ? "is-complete"
+      : index === currentIndex ? "is-current" : "is-upcoming";
+    return node;
+  }));
+}
+
 function renderHud(snapshot = Sim.snapshot(game)) {
   renderCapacity(snapshot);
-  els.incomeValue.textContent = `¥${snapshot.income}`;
-  if (snapshot.income > lastIncome) replayAnimation(els.incomeStatus, "is-earning");
-  lastIncome = snapshot.income;
+  renderIncome(snapshot.income);
   if (snapshot.currentNode) {
     const periodLabel = snapshot.currentNode.period?.label || Sim.SHIFT_PERIOD.label;
     els.segmentLabel.textContent = trainingActive
       ? `${periodLabel} · 上岗试跑`
       : `${periodLabel} · 第 ${snapshot.waveIndex + 1} / ${snapshot.waveCount} 家`;
     els.merchantLabel.textContent = `当前店铺：${snapshot.currentNode.merchant.name}`;
-    els.storeProgressLabel.textContent = trainingActive
-      ? `试跑第 ${snapshot.nodeIndex + 1} / ${snapshot.nodesPerWave} 组`
-      : `本店第 ${snapshot.nodeIndex + 1} / ${snapshot.nodesPerWave} 组订单`;
+    renderStoreProgress(snapshot);
     world.setActiveMerchant(snapshot.currentNode.merchant.id, snapshot.currentNode.merchant.name);
   }
   updateDebug();
@@ -332,25 +369,88 @@ function renderBriefing() {
   els.briefingTitle.textContent = "你就是今天跑单的骑手";
   els.briefingLead.textContent = "";
   els.briefingVisual.replaceChildren(...[
-    ["你现在是骑手", "平台已经把单排好了", "导航会自动带路。到了店，你来决定先等还是先送。"],
-    ["今天要多赚钱", "准时送，路上别出事", "准时能拿完整收入；同一次事故会让眼前这趟多耽误约一分半，也会让后面的接单机会变少。"],
-    ["同一家店连续跑六组", "刚才的取餐情况会记下来", "不用硬记。换店时会提醒你，骑手笔记也会重新开始。"]
-  ].map(([label, title, text]) => {
+    { label: "你现在是骑手", title: "平台已经把单排好了", text: "导航会自动带路。到了店，你来决定等到餐好再一起送，还是先送手上的。" },
+    { label: "今天要多赚钱", title: "准时送，路上别出事", text: "准时能拿完整收入；同一次事故会让眼前这趟多耽误约一分半，也会让后面的接单机会变少。" },
+    { label: "同一家店连续跑六组", title: "刚才的取餐情况会记下来", text: "不用硬记。换店时会提醒你，骑手笔记也会重新开始。", visual: "same-store-six-groups" }
+  ].map(({ label, title, text, visual }) => {
     const article = document.createElement("article");
-    article.innerHTML = `<span>${label}</span><strong>${title}</strong><small>${text}</small>`;
+    article.innerHTML = `<span>${label}</span>`;
+    if (visual === "same-store-six-groups") {
+      article.classList.add("has-store-flow");
+      const flow = document.createElement("div");
+      flow.className = "briefing-store-flow";
+      flow.setAttribute("aria-hidden", "true");
+      flow.innerHTML = `
+        <div class="briefing-store-symbol">
+          <svg viewBox="0 0 40 34" focusable="false">
+            <path d="M6 13h28v17H6zM4 13l4-8h24l4 8M11 13v5m6-5v5m6-5v5m6-5v5M10 30V20h12v10m4-7h5" />
+          </svg>
+          <b>本店</b>
+        </div>
+        <div class="briefing-group-track">
+          ${[1, 2, 3, 4, 5, 6].map((number) => `<i>${number}</i>`).join("")}
+        </div>
+        <div class="briefing-next-store"><b>→</b><em>换店</em></div>
+      `;
+      article.append(flow);
+    }
+    article.insertAdjacentHTML("beforeend", `<strong>${title}</strong><small>${text}</small>`);
     return article;
   }));
   els.briefingNext.innerHTML = "戴好头盔，出发 <span>→</span>";
 }
 
-function historyFactText(entry) {
-  const facts = {
-    ready_within_window: "等了一小会，取到餐了",
-    still_not_ready: "等到约定时间，餐还没好",
-    ready_on_return: "送完回来，餐已经好了",
-    still_not_ready_on_return: "送完回来，餐还没好"
+function createHistoryFactSymbol(presentation) {
+  const symbol = document.createElement("span");
+  symbol.className = `history-fact-symbol is-${presentation.family}`;
+  symbol.dataset.visualCode = presentation.visualCode;
+  symbol.dataset.expression = presentation.expression || "patient";
+  symbol.dataset.route = presentation.route || "fact";
+  symbol.setAttribute("aria-hidden", "true");
+  const expressions = {
+    relieved: {
+      eyes: '<path d="M7.5 10.3c.8-.9 1.8-.9 2.6 0m3.8 0c.8-.9 1.8-.9 2.6 0"></path>',
+      mouth: '<path d="M8.3 14.3c1.8 2.2 5.6 2.2 7.4 0"></path>',
+      extra: ""
+    },
+    weary: {
+      eyes: '<path d="M7.3 10.1l2.7.8m4-.1 2.7-.8"></path>',
+      mouth: '<path d="M8.8 16c1.6-1.7 4.8-1.7 6.4 0"></path>',
+      extra: '<path class="history-emotion-extra" d="M18.6 7.3c1.1 1.5.9 2.7-.2 3.1-1.1.3-1.8-.9.2-3.1Z"></path>'
+    },
+    patient: {
+      eyes: '<path d="M8.3 10.2h.1m7.2 0h.1"></path>',
+      mouth: '<path d="M9 15h6"></path>',
+      extra: ""
+    }
   };
-  return facts[entry?.feedbackOutcome] || "这次取餐已经记下";
+  const face = expressions[presentation.expression] || expressions.patient;
+  const returnBadge = presentation.route === "return"
+    ? '<span class="history-route-badge">↩</span>'
+    : "";
+  symbol.innerHTML = `
+    <svg class="history-emotion-face" viewBox="0 0 24 24" focusable="false">
+      <circle cx="12" cy="12" r="8.2"></circle>
+      ${face.eyes}${face.mouth}${face.extra}
+    </svg>
+    ${returnBadge}
+  `;
+  return symbol;
+}
+
+function renderHistoryFactRow(row, entry, lead, fallbackText = "这次取餐已经记下") {
+  const source = HistoryPresentation.getPresentation(entry?.feedbackOutcome);
+  const presentation = entry ? source : { ...source, text: fallbackText };
+  const leadNode = document.createElement("span");
+  leadNode.className = "history-fact-lead";
+  leadNode.textContent = `${lead}：`;
+  const textNode = document.createElement("span");
+  textNode.className = "history-fact-text";
+  textNode.textContent = presentation.text;
+  row.dataset.feedbackOutcome = entry?.feedbackOutcome || "fact_recorded";
+  row.dataset.visualCode = presentation.visualCode;
+  row.setAttribute("aria-label", `${lead}：${presentation.text}`);
+  row.replaceChildren(createHistoryFactSymbol(presentation), leadNode, textNode);
 }
 
 function renderRiderNotebook(snapshot) {
@@ -360,12 +460,8 @@ function renderRiderNotebook(snapshot) {
     return;
   }
   els.notebookMerchant.textContent = snapshot.currentNode?.merchant?.name || "当前店铺";
-  els.historyFact1.textContent = recent[0]
-    ? `上一次：${historyFactText(recent[0])}`
-    : "";
-  els.historyFact2.textContent = recent[1]
-    ? `上上次：${historyFactText(recent[1])}`
-    : "";
+  renderHistoryFactRow(els.historyFact1, recent[0], "上一次");
+  if (recent[1]) renderHistoryFactRow(els.historyFact2, recent[1], "上上次");
   els.historyFact2.classList.toggle("is-hidden", !recent[1]);
   show(els.riderNotebook);
 }
@@ -375,7 +471,7 @@ function renderRouteDecision(snapshot) {
   els.routeDecision.classList.remove("is-resolving");
   els.routeDecision.querySelectorAll("[data-route]").forEach((button) => button.classList.remove("is-committed"));
   els.objectiveLabel.textContent = "策略选择";
-  els.experienceText.textContent = node.merchant.experience;
+  els.experienceText.textContent = node.merchant.experienceText;
   renderRiderNotebook(snapshot);
   els.carriedUrgency.style.width = `${Math.round(node.carriedUrgency * 100)}%`;
   els.newUrgency.style.width = `${Math.round(node.newUrgency * 100)}%`;
@@ -396,7 +492,7 @@ async function guideStoreDecision(snapshot) {
     await showCoach(
       els.experienceText,
       "你记得这家店平时怎么样",
-      "你以前跑过这家店，大概知道它平时快不快。不过今天可能不一样，还是要看看眼前的情况。"
+      "这是你过去午高峰跑这家店留下的印象，可以帮你先有个大概判断。"
     );
     await showCoach(
       els.carriedOrderCard,
@@ -410,8 +506,8 @@ async function guideStoreDecision(snapshot) {
     );
     await showCoach(
       els.routeActions,
-      "现在决定：先等一小会，还是马上走",
-      "“先等一小会”不是一直等到出餐。餐好了就一起走；到点还没好，就先送手上的。“马上走”能保护旧单，但之后要回来取餐。",
+      "现在决定：等餐做好，还是马上走",
+      "选择“等餐做好再一起送”，你会留在店里直到餐做好，再把两单一起送；选择“先送手上这单”，现在就走，之后再回来取新餐。",
       "知道了，我来选"
     );
   } else {
@@ -434,16 +530,19 @@ async function playTravelLeg({ targetType, targetLabel, title, detail, milliseco
   hide(els.travelPrompt);
 }
 
-async function playWaitLeg(merchantName) {
-  els.objectiveLabel.textContent = "先在店里等一会";
+async function playWaitLeg(merchantName, waitedSeconds, copy = {}) {
+  const visualDuration = waitedSeconds <= Sim.WAIT_FEEDBACK_BANDS_SECONDS.shortMax
+    ? 520
+    : waitedSeconds <= Sim.WAIT_FEEDBACK_BANDS_SECONDS.mediumMax ? 740 : 980;
+  els.objectiveLabel.textContent = "留在店里等餐";
   els.travelIcon.textContent = "◷";
-  els.travelTitle.textContent = "在店里等一小会";
-  els.travelDetail.textContent = "到点还没好就先走";
+  els.travelTitle.textContent = copy.title || "等新餐做好";
+  els.travelDetail.textContent = copy.detail || "餐好后把两单一起送";
   els.travelProgress.style.width = "0%";
   els.travelPrompt.classList.add("is-waiting");
   show(els.travelPrompt);
   world.setArrivalTarget("merchant", merchantName);
-  await world.waitAtMerchant(duration(620), (progress) => {
+  await world.waitAtMerchant(duration(visualDuration), (progress) => {
     els.travelProgress.style.width = `${Math.round(progress * 100)}%`;
   });
   hide(els.travelPrompt);
@@ -474,24 +573,30 @@ function renderSpeedDecision(routeAction) {
   els.speedDecision.querySelectorAll("[data-speed]").forEach((button) => button.setAttribute("aria-checked", "false"));
   els.goButton.disabled = true;
   els.goButton.textContent = "待选档";
-  els.chosenRouteText.textContent = routeAction === "wait_briefly"
-    ? ""
+  els.chosenRouteText.textContent = routeAction === "wait_until_ready"
+    ? "留在店里等到餐做好，再把两单一起送。两单送完前都按同一档骑。"
     : "先送手上的，之后折返回来取餐。两单送完前都按同一档骑。";
   show(els.speedDecision);
 }
 
 function feedbackCopy(result) {
-  if (result.feedbackOutcome === "ready_within_window") return {
-    kicker: "还没到等候时限",
+  if (result.feedbackOutcome === "ready_after_short_wait") return {
+    kicker: "没等多久",
     title: "餐做好了",
-    text: "这次不用折返，两单可以一起送。",
+    text: "取到新餐，现在把两单一起送。",
     icon: "✓"
   };
-  if (result.feedbackOutcome === "still_not_ready") return {
-    kicker: "等到刚才定好的时限",
-    title: "餐还是没好",
-    text: "出发先送手上的，送完再回来取下一单。",
-    icon: "…"
+  if (result.feedbackOutcome === "ready_after_medium_wait") return {
+    kicker: "等了一阵",
+    title: "餐做好了",
+    text: "取到新餐，现在把两单一起送。",
+    icon: "✓"
+  };
+  if (result.feedbackOutcome === "ready_after_long_wait") return {
+    kicker: "等了很久",
+    title: "餐终于做好了",
+    text: "取到新餐，现在把两单一起送。",
+    icon: "✓"
   };
   if (result.feedbackOutcome === "ready_on_return") return {
     kicker: "送完手上这单，回到店里",
@@ -500,10 +605,10 @@ function feedbackCopy(result) {
     icon: "✓"
   };
   return {
-    kicker: "送完手上这单，回到店里",
-    title: "餐还没好",
-    text: "店里比你预想的更忙，只能再等一会。",
-    icon: "…"
+    kicker: "回来后又等了一会",
+    title: "取到餐了",
+    text: "现在带着新餐继续送。",
+    icon: "✓"
   };
 }
 
@@ -513,7 +618,9 @@ async function flashFeedback(result) {
   els.feedbackTitle.textContent = copy.title;
   els.feedbackText.textContent = copy.text;
   els.feedbackIcon.textContent = copy.icon;
-  els.feedbackCard.dataset.tone = ["ready_within_window", "ready_on_return"].includes(result.feedbackOutcome)
+  els.feedbackCard.dataset.tone = [
+    "ready_after_short_wait", "ready_after_medium_wait", "ready_after_long_wait", "ready_on_return"
+  ].includes(result.feedbackOutcome)
     ? "good"
     : "watch";
   show(els.feedbackCard);
@@ -539,7 +646,8 @@ async function flashIncidentConsequences() {
   els.feedbackCard.dataset.tone = "danger";
   show(els.feedbackCard);
   replayAnimation(els.feedbackCard, "is-arriving");
-  renderHud();
+  renderCapacity(Sim.snapshot(game));
+  updateDebug();
   await delay(fastMotion ? 320 : 1050);
   hide(els.feedbackCard);
 }
@@ -548,8 +656,8 @@ async function animateResolution(result, snapshotBefore) {
   const node = snapshotBefore.currentNode;
   hide(els.speedDecision);
 
-  if (result.routeAction === "wait_briefly") {
-    await playWaitLeg(node.merchant.name);
+  if (result.routeAction === "wait_until_ready") {
+    await playWaitLeg(node.merchant.name, result.waitedSeconds);
     await flashFeedback(result);
     await playTravelLeg({
       targetType: "customer",
@@ -561,16 +669,6 @@ async function animateResolution(result, snapshotBefore) {
     });
     if (result.incident) await flashIncidentConsequences();
     await world.playDelivery();
-    if (result.feedbackOutcome === "still_not_ready") {
-      await playTravelLeg({
-        targetType: "merchant",
-        targetLabel: node.merchant.name,
-        title: `返回${node.merchant.name}取餐`,
-        detail: "店家还在继续做餐",
-        milliseconds: 480,
-        speedId: result.speedId
-      });
-    }
   } else {
     await playTravelLeg({
       targetType: "customer",
@@ -590,6 +688,12 @@ async function animateResolution(result, snapshotBefore) {
       milliseconds: 500,
       speedId: result.speedId
     });
+    if (result.feedbackOutcome === "still_not_ready_on_return") {
+      await playWaitLeg(node.merchant.name, result.waitedSeconds, {
+        title: "回来时餐还没好",
+        detail: "留在店里继续等到取餐"
+      });
+    }
     await flashFeedback(result);
   }
 
@@ -608,9 +712,16 @@ function outcomeText(onTime) { return onTime ? "准时" : "超时"; }
 
 function renderResult(result) {
   const bothOnTime = result.carriedOnTime && result.newOnTime;
+  const latePenaltyPerOrder = Sim.FULL_INCOME - Sim.LATE_INCOME;
+  const lateCount = Number(!result.carriedOnTime) + Number(!result.newOnTime);
+  const lateLoss = lateCount * latePenaltyPerOrder;
   els.resultTitle.textContent = bothOnTime ? "两单都准时送达" : "订单送达，但有超时";
   els.carriedResult.textContent = outcomeText(result.carriedOnTime);
   els.newResult.textContent = outcomeText(result.newOnTime);
+  els.carriedLateLoss.textContent = `比准时少赚 ¥${latePenaltyPerOrder}`;
+  els.newLateLoss.textContent = `比准时少赚 ¥${latePenaltyPerOrder}`;
+  els.carriedLateLoss.classList.toggle("is-hidden", result.carriedOnTime);
+  els.newLateLoss.classList.toggle("is-hidden", result.newOnTime);
   els.incidentResult.textContent = result.incident ? "出了事故" : "未出事故";
   els.incomeResult.textContent = `+¥${result.income}`;
   els.carriedResult.classList.toggle("is-bad", !result.carriedOnTime);
@@ -627,7 +738,7 @@ function renderResult(result) {
   show(els.resultCard);
   replayAnimation(els.resultCard, "is-arriving");
   renderHud();
-  showReward(result.income, bothOnTime ? "两单送达" : "本趟收入");
+  showReward(result.income, bothOnTime ? "两单送达" : "本趟收入", lateLoss);
   updateDebug();
 }
 
@@ -698,6 +809,7 @@ function sanitizeFilePart(value) {
 function assembleExportPayload() {
   const payload = Sim.exportData(game);
   payload.configuration.buildId = Telemetry.BUILD_ID;
+  payload.configuration.historyPresentationVersion = HistoryPresentation.VERSION;
   payload.visualRuntime = world.getVisualRuntime();
   payload.runtimeTelemetry = experimentTelemetry.snapshot(payload.visualRuntime);
   payload.integrityAudit = Telemetry.auditExperimentIntegrity({
@@ -791,7 +903,7 @@ async function startTrainingShift() {
   await showCoach(
     els.objectiveChip,
     "左上角：当前店铺和跑单进度",
-    "这里会一直显示当前店名和本店的跑单进度。正式开工后，每家店连续跑六组。"
+    "六个圆点表示本店六组，亮圈是正在跑的这一组。正式开工后，每家店连续跑六组。"
   );
   await showCoach(
     els.capacityStatus,
@@ -923,7 +1035,7 @@ if (debug) {
       while (game.phase !== "summary") {
         if (game.phase === "approaching_store") Sim.arriveAtStore(game);
         else if (game.phase === "route_decision") {
-          Sim.chooseRoute(game, game.nodeIndex % 2 ? "wait_briefly" : "deliver_carried_first");
+          Sim.chooseRoute(game, game.nodeIndex % 2 ? "wait_until_ready" : "deliver_carried_first");
         } else if (game.phase === "speed_decision") {
           Sim.resolveChoice(game, game.nodeIndex % 3 ? "normal" : "rush");
           Sim.showResult(game);

@@ -389,6 +389,8 @@ export function createFirstPersonWorld(canvas, options = {}) {
     car.userData.baseZ = car.position.z;
     car.userData.speedRatio = index % 2 ? .42 : 1.25;
     car.userData.visualDistance = 0;
+    car.userData.roadTrafficEnabled = true;
+    car.visible = false;
     cars.push(car);
     proceduralTrafficObjects.push(car);
     scene.add(car);
@@ -545,6 +547,9 @@ export function createFirstPersonWorld(canvas, options = {}) {
 
   let travelDistance = 0;
   let moving = false;
+  let roadTrafficWasActive = false;
+  let roadTrafficActivationCount = 0;
+  let lastRoadTrafficVisibleCount = 0;
   let currentTone = "normal";
   let currentTarget = { type: "merchant", label: "目的地" };
   let cameraShake = 0;
@@ -568,6 +573,20 @@ export function createFirstPersonWorld(canvas, options = {}) {
     peripheralBlur.classList.toggle("is-active", active);
   }
 
+  function syncRoadTrafficVisibility() {
+    cars.forEach((actor) => {
+      actor.visible = moving && actor.userData.roadTrafficEnabled !== false;
+    });
+    if (moving && !roadTrafficWasActive) {
+      roadTrafficActivationCount += 1;
+      lastRoadTrafficVisibleCount = cars.filter((actor) => actor.visible).length;
+    }
+    roadTrafficWasActive = moving;
+    // The fixed destination gate now carries the delivery scene. Keep the old
+    // procedural person out of paused decisions, tutorials and result screens.
+    customer.visible = false;
+  }
+
   function setStopLabel(label) {
     const old = stopSign.material.map;
     stopSign.material.map = makeLabelTexture(label);
@@ -582,6 +601,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
     assetLayers.hideDestination();
     destinationFallback.visible = false;
     customer.visible = false;
+    syncRoadTrafficVisibility();
   }
 
   function revealArrival() {
@@ -598,7 +618,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
       assetLayers.hideMerchant();
       const destinationAssetVisible = assetLayers.revealDestination("送到这里");
       destinationFallback.visible = !destinationAssetVisible;
-      customer.visible = true;
+      customer.visible = false;
       return;
     }
     assetLayers.hideDestination();
@@ -644,6 +664,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
       setSpeedTone("normal");
     }
     moving = Boolean(active);
+    syncRoadTrafficVisibility();
     updatePeripheralBlur();
   }
 
@@ -654,6 +675,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
     destinationFallback.visible = false;
     customer.visible = false;
     moving = true;
+    syncRoadTrafficVisibility();
     updatePeripheralBlur();
     const started = performance.now();
     return new Promise((resolve) => {
@@ -663,6 +685,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
         if (raw < 1) requestAnimationFrame(step);
         else {
           moving = false;
+          syncRoadTrafficVisibility();
           updatePeripheralBlur();
           revealArrival();
           resolve();
@@ -673,6 +696,8 @@ export function createFirstPersonWorld(canvas, options = {}) {
   }
 
   function waitAtMerchant(durationMs, onProgress) {
+    moving = false;
+    syncRoadTrafficVisibility();
     revealArrival();
     const started = performance.now();
     return new Promise((resolve) => {
@@ -695,7 +720,7 @@ export function createFirstPersonWorld(canvas, options = {}) {
 
   function playDelivery() {
     deliveryPulseUntil = performance.now() + (reducedMotion ? 260 : 650);
-    customer.visible = true;
+    customer.visible = false;
     return new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 220 : 440));
   }
 
@@ -744,10 +769,12 @@ export function createFirstPersonWorld(canvas, options = {}) {
       object.position.z = wrapRoadZ(object.userData.baseZ + travelDistance);
     });
     cars.forEach((car) => {
-      const carSpeed = moving ? tone.speed * car.userData.speedRatio : 1.3 * car.userData.speedRatio;
-      car.userData.visualDistance += delta * carSpeed;
+      if (moving && car.userData.roadTrafficEnabled !== false) {
+        car.userData.visualDistance += delta * tone.speed * car.userData.speedRatio;
+      }
       car.position.z = wrapRoadZ(car.userData.baseZ + car.userData.visualDistance);
     });
+    syncRoadTrafficVisibility();
 
     const motionScale = moving ? 1 : .16;
     const bob = reducedMotion ? 0 : Math.sin(elapsed * (currentTone === "sprint" ? 15 : 11)) * tone.bob * motionScale;
@@ -819,6 +846,14 @@ export function createFirstPersonWorld(canvas, options = {}) {
         active: peripheralBlur.classList.contains("is-active"),
         tone: peripheralBlur.dataset.tone || "normal",
         pixels: Number.parseFloat(peripheralBlur.style.getPropertyValue("--speed-blur")) || 0
+      },
+      roadTraffic: {
+        active: moving,
+        totalCount: cars.filter((actor) => actor.userData.roadTrafficEnabled !== false).length,
+        visibleCount: cars.filter((actor) => actor.visible).length,
+        activationCount: roadTrafficActivationCount,
+        lastActivationVisibleCount: lastRoadTrafficVisibleCount,
+        customerVisible: customer.visible
       },
       performance: performanceSnapshot()
     }),

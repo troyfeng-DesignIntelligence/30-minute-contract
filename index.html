@@ -26,7 +26,7 @@
         const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
         params.set("pid", `SHARE-${Date.now().toString(36).toUpperCase()}-${suffix}`);
       }
-      if (!params.has("build")) params.set("build", "pilot-instrumentation-20260807.4");
+      if (!params.has("build")) params.set("build", "pomdp-v2.6.4-pilot-history-emotion-20260808.11");
       location.replace(`./pomdp-v2.html?${params.toString()}`);
     })();
   </script>
