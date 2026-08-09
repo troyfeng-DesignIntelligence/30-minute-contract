@@ -36,10 +36,72 @@
     sprint: Object.freeze({ id: "sprint", label: "冲刺", travelFactor: 0.66, incidentChance: 0.25 })
   });
   const PREP_REMAINING_SECONDS = Object.freeze([30, 90, 180, 420]);
-  const PREP_DISTRIBUTIONS = Object.freeze({
-    smooth: Object.freeze([0.55, 0.30, 0.12, 0.03]),
-    busy: Object.freeze([0.10, 0.25, 0.35, 0.30])
+  const MECHANISM_VARIANTS = Object.freeze({
+    frozen_v2_0: Object.freeze({
+      id: "frozen_v2_0",
+      publicId: "frozen-v2.0",
+      candidateBuildId: null,
+      dataCompatibility: null,
+      kCalibrated: false,
+      customerMessagesUEnabled: false,
+      loadAllocationPolicy: "within_k_profile_2_smooth_2_busy",
+      prepDistributions: Object.freeze({
+        smooth: Object.freeze([0.55, 0.30, 0.12, 0.03]),
+        busy: Object.freeze([0.10, 0.25, 0.35, 0.30])
+      }),
+      beliefBusyPrior: Object.freeze({ usually_fast: 0.30, variable: 0.50, often_slow: 0.70 })
+    }),
+    k_calibrated_v1: Object.freeze({
+      id: "k_calibrated_v1",
+      publicId: "k-calibrated-v1",
+      candidateBuildId: "pomdp-k-prior-calibration-candidate-v1",
+      dataCompatibility: "k-calibrated-v1_only_do_not_pool_with_other_mechanisms",
+      kCalibrated: true,
+      customerMessagesUEnabled: false,
+      loadAllocationPolicy: "usually_fast_3_smooth_1_busy__variable_2_2__often_slow_1_smooth_3_busy",
+      prepDistributions: Object.freeze({
+        smooth: Object.freeze([0.60, 0.30, 0.08, 0.02]),
+        busy: Object.freeze([0.08, 0.22, 0.35, 0.35])
+      }),
+      beliefBusyPrior: Object.freeze({ usually_fast: 0.25, variable: 0.50, often_slow: 0.75 })
+    }),
+    k_u_unified_v1: Object.freeze({
+      id: "k_u_unified_v1",
+      publicId: "k-u-unified-v1",
+      candidateBuildId: "pomdp-k-u-unified-candidate-v1.1-attention-pressure",
+      dataCompatibility: "pomdp-k-u-unified-candidate-v1.1-attention-pressure_only",
+      kCalibrated: true,
+      customerMessagesUEnabled: true,
+      loadAllocationPolicy: "usually_fast_3_smooth_1_busy__variable_2_2__often_slow_1_smooth_3_busy",
+      prepDistributions: Object.freeze({
+        smooth: Object.freeze([0.60, 0.30, 0.08, 0.02]),
+        busy: Object.freeze([0.08, 0.22, 0.35, 0.35])
+      }),
+      beliefBusyPrior: Object.freeze({ usually_fast: 0.25, variable: 0.50, often_slow: 0.75 })
+    })
   });
+  function requestedMechanismVariant() {
+    const environmentValue = typeof process !== "undefined" && process?.env
+      ? process.env.POMDP_MECHANISM_VARIANT
+      : null;
+    let queryValue = null;
+    if (typeof location !== "undefined" && typeof location.search === "string") {
+      queryValue = new URLSearchParams(location.search).get("mechanism");
+    }
+    const normalized = String(environmentValue || queryValue || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[.-]+/g, "_");
+    if (["k_u_unified_v1", "k_u", "u_unified", "unified"].includes(normalized)) return "k_u_unified_v1";
+    if (["k_calibrated_v1", "candidate", "k_prior_calibration"].includes(normalized)) return "k_calibrated_v1";
+    return "frozen_v2_0";
+  }
+  const MECHANISM_VARIANT = requestedMechanismVariant();
+  const MECHANISM_CONFIG = MECHANISM_VARIANTS[MECHANISM_VARIANT];
+  const PREP_DISTRIBUTIONS = MECHANISM_CONFIG.prepDistributions;
+  const CUSTOMER_MESSAGE_STATES = Object.freeze(["none", "ordinary", "urging"]);
+  const CUSTOMER_MESSAGE_GATE_MS = 2300;
+  const CUSTOMER_MESSAGE_DELAY_RANGE_MS = Object.freeze({ minimum: 700, maximum: 2200 });
   const EXPERIENCE_COPY = Object.freeze({
     usually_fast: Object.freeze([
       Object.freeze({ id: "usually_fast_01", text: "你以前午高峰跑这家店：大多数时候出餐比较快。" }),
@@ -131,6 +193,85 @@
     return copy;
   }
 
+  function balancedCustomerMessageStates(count, rng) {
+    const ordinaryCount = Math.round(count / 4);
+    const urgingCount = Math.round(count / 4);
+    const noneCount = count - ordinaryCount - urgingCount;
+    return shuffle([
+      ...Array(noneCount).fill("none"),
+      ...Array(ordinaryCount).fill("ordinary"),
+      ...Array(urgingCount).fill("urging")
+    ], rng);
+  }
+
+  function buildCustomerMessageSchedule(plan, seed, options = {}) {
+    const schedule = new Map();
+    if (!MECHANISM_CONFIG.customerMessagesUEnabled && options.force !== true) return schedule;
+    const rng = mulberry32((Number(seed) ^ 0x75a91e) >>> 0);
+    const byScenarioKind = new Map();
+    for (const wave of plan) {
+      for (const node of wave.nodes) {
+        const scenarioKind = node.scenario.kind || "unknown";
+        if (!byScenarioKind.has(scenarioKind)) byScenarioKind.set(scenarioKind, []);
+        byScenarioKind.get(scenarioKind).push({
+          waveIndex: wave.waveIndex,
+          nodeIndex: node.nodeIndex,
+          scenarioKind,
+          experienceProfileId: wave.merchant.experienceProfileId,
+          loadState: wave.loadState
+        });
+      }
+    }
+    for (const entries of byScenarioKind.values()) {
+      const states = balancedCustomerMessageStates(entries.length, rng);
+      const randomizedEntries = shuffle(entries, rng);
+      randomizedEntries.forEach((entry, index) => {
+        const condition = states[index];
+        const delaySpan = CUSTOMER_MESSAGE_DELAY_RANGE_MS.maximum - CUSTOMER_MESSAGE_DELAY_RANGE_MS.minimum;
+        const scheduledDelayMs = condition === "none"
+          ? null
+          : Math.round(CUSTOMER_MESSAGE_DELAY_RANGE_MS.minimum + rng() * delaySpan);
+        schedule.set(`${entry.waveIndex}:${entry.nodeIndex}`, Object.freeze({
+          ...entry,
+          condition,
+          messageScheduled: condition !== "none",
+          scheduledDelayMs
+        }));
+      });
+    }
+    if (options.tutorial === true && plan[0]?.nodes?.length >= 2) {
+      const tutorialStates = ["ordinary", "urging"];
+      tutorialStates.forEach((condition, nodeIndex) => {
+        const existing = schedule.get(`0:${nodeIndex}`);
+        schedule.set(`0:${nodeIndex}`, Object.freeze({
+          ...existing,
+          waveIndex: 0,
+          nodeIndex,
+          scenarioKind: plan[0].nodes[nodeIndex].scenario.kind,
+          experienceProfileId: plan[0].merchant.experienceProfileId,
+          loadState: plan[0].loadState,
+          condition,
+          messageScheduled: true,
+          scheduledDelayMs: CUSTOMER_MESSAGE_DELAY_RANGE_MS.minimum
+        }));
+      });
+    }
+    return schedule;
+  }
+
+  function customerMessagePlanFor(state, waveIndex = state.waveIndex, nodeIndex = state.nodeIndex) {
+    return state.customerMessageSchedule.get(`${waveIndex}:${nodeIndex}`) || Object.freeze({
+      waveIndex,
+      nodeIndex,
+      scenarioKind: null,
+      experienceProfileId: null,
+      loadState: null,
+      condition: "none",
+      messageScheduled: false,
+      scheduledDelayMs: null
+    });
+  }
+
   function scenarioBankForWaveCount(waveCount) {
     if (!Number.isInteger(waveCount) || waveCount < 2) {
       throw new Error("waveCount must be an integer of at least 2");
@@ -173,12 +314,27 @@
       loadByMerchant = new Map();
       for (const profileId of Object.keys(EXPERIENCE_COPY)) {
         const profileMerchants = selectedMerchants.filter((item) => item.experienceProfileId === profileId);
-        const loads = shuffle([
-          ...Array(profileMerchants.length / 2).fill("busy"),
-          ...Array(profileMerchants.length / 2).fill("smooth")
-        ], rng);
+        const candidateLoads = {
+          usually_fast: ["smooth", "smooth", "smooth", "busy"],
+          variable: ["smooth", "smooth", "busy", "busy"],
+          often_slow: ["smooth", "busy", "busy", "busy"]
+        };
+        const loads = shuffle(
+          MECHANISM_CONFIG.kCalibrated
+            ? candidateLoads[profileId]
+            : [
+              ...Array(profileMerchants.length / 2).fill("busy"),
+              ...Array(profileMerchants.length / 2).fill("smooth")
+            ],
+          rng
+        );
         profileMerchants.forEach((item, index) => loadByMerchant.set(item.id, loads[index]));
       }
+    } else if (MECHANISM_CONFIG.kCalibrated) {
+      loadByMerchant = new Map(selectedMerchants.map((item) => [
+        item.id,
+        rng() < MECHANISM_CONFIG.beliefBusyPrior[item.experienceProfileId] ? "busy" : "smooth"
+      ]));
     } else {
       const loads = balancedLoadStates(waveCount, rng);
       loadByMerchant = new Map(selectedMerchants.map((item, index) => [
@@ -297,6 +453,9 @@
       : DEFAULT_NODES_PER_WAVE;
     const capacityMax = capacityForNodes(nodesPerWave);
     const plan = buildPlan(Number(seed), waveCount, nodesPerWave);
+    const customerMessageSchedule = buildCustomerMessageSchedule(plan, Number(seed), {
+      tutorial: options.messageScheduleMode === "tutorial"
+    });
       return {
         protocolVersion: PROTOCOL_VERSION,
         version: VERSION,
@@ -310,6 +469,8 @@
       routeChoiceCount: waveCount * nodesPerWave,
       shiftPeriod: { ...SHIFT_PERIOD },
       plan,
+      customerMessageSchedule,
+      currentMessageWindow: null,
       rng: mulberry32((Number(seed) ^ 0x1c1de7) >>> 0),
       phase: "briefing",
       waveIndex: 0,
@@ -362,6 +523,8 @@
       copyVersion: COPY_VERSION,
       experienceCopyVersion: EXPERIENCE_COPY_VERSION,
       actionModel: ACTION_MODEL,
+      mechanismVariant: MECHANISM_CONFIG.publicId,
+      customerMessagesUEnabled: MECHANISM_CONFIG.customerMessagesUEnabled,
       shiftPeriod: { ...state.shiftPeriod },
       at: new Date().toISOString()
     });
@@ -426,6 +589,7 @@
     state.currentResult = null;
     state.currentRouteAction = null;
     state.currentRouteDecisionId = null;
+    state.currentMessageWindow = null;
     logEvent(state, {
       eventType: "meal_not_ready_observation",
       waveIndex: state.waveIndex,
@@ -444,6 +608,19 @@
     state.currentRouteDecisionId = decision.decisionId;
     state.routeCounts[routeAction] += 1;
     state.phase = "speed_decision";
+    const messagePlan = customerMessagePlanFor(state);
+    const messageWindowOpenedAtMs = Date.now();
+    state.currentMessageWindow = {
+      condition: messagePlan.condition,
+      messageScheduled: messagePlan.messageScheduled,
+      scheduledDelayMs: messagePlan.scheduledDelayMs,
+      scenarioKind: messagePlan.scenarioKind,
+      openedAtMs: messageWindowOpenedAtMs,
+      gateReadyAtMs: null,
+      exposedAtMs: null,
+      customerMessageSeen: false,
+      soundPlayed: false
+    };
     logEvent(state, {
       eventType: "route_choice",
       waveIndex: state.waveIndex,
@@ -453,7 +630,70 @@
       responseTimeMs: decision.responseTimeMs,
       action: routeAction
     });
-    openDecision(state, "trip_pace", { routeAction });
+    if (MECHANISM_CONFIG.customerMessagesUEnabled) {
+      logEvent(state, {
+        eventType: "customer_message_window_open",
+        waveIndex: state.waveIndex,
+        nodeIndex: state.nodeIndex,
+        condition: messagePlan.condition,
+        messageScheduled: messagePlan.messageScheduled,
+        scheduledDelayMs: messagePlan.scheduledDelayMs,
+        gateDurationMs: CUSTOMER_MESSAGE_GATE_MS,
+        openedAtMs: messageWindowOpenedAtMs
+      });
+    }
+    openDecision(state, "trip_pace", {
+      routeAction,
+      ...(MECHANISM_CONFIG.customerMessagesUEnabled ? {
+        customerMessageConditionPlanned: messagePlan.condition,
+        customerMessageScheduled: messagePlan.messageScheduled
+      } : {})
+    });
+    return snapshot(state);
+  }
+
+  function markCustomerMessageExposed(state, details = {}) {
+    if (!MECHANISM_CONFIG.customerMessagesUEnabled) return snapshot(state);
+    if (state.phase !== "speed_decision" || !state.currentMessageWindow) {
+      throw new Error("customer message cannot be exposed outside the trip-pace decision");
+    }
+    const windowState = state.currentMessageWindow;
+    if (!windowState.messageScheduled || windowState.condition === "none") {
+      throw new Error("no customer message is scheduled for this trial");
+    }
+    if (windowState.customerMessageSeen) return snapshot(state);
+    const exposedAtMs = Number.isFinite(details.exposedAtMs) ? details.exposedAtMs : Date.now();
+    windowState.exposedAtMs = exposedAtMs;
+    windowState.customerMessageSeen = true;
+    windowState.soundPlayed = details.soundPlayed === true;
+    logEvent(state, {
+      eventType: "customer_message_exposure",
+      waveIndex: state.waveIndex,
+      nodeIndex: state.nodeIndex,
+      condition: windowState.condition,
+      scheduledDelayMs: windowState.scheduledDelayMs,
+      actualDelayMs: Math.max(0, exposedAtMs - windowState.openedAtMs),
+      soundPlayed: windowState.soundPlayed,
+      exposedAtMs
+    });
+    return snapshot(state);
+  }
+
+  function markCustomerMessageGateReady(state, details = {}) {
+    if (!MECHANISM_CONFIG.customerMessagesUEnabled) return snapshot(state);
+    if (state.phase !== "speed_decision" || !state.currentMessageWindow) {
+      throw new Error("message gate cannot open outside the trip-pace decision");
+    }
+    const gateReadyAtMs = Number.isFinite(details.gateReadyAtMs) ? details.gateReadyAtMs : Date.now();
+    state.currentMessageWindow.gateReadyAtMs = gateReadyAtMs;
+    logEvent(state, {
+      eventType: "customer_message_gate_ready",
+      waveIndex: state.waveIndex,
+      nodeIndex: state.nodeIndex,
+      condition: state.currentMessageWindow.condition,
+      customerMessageSeen: state.currentMessageWindow.customerMessageSeen,
+      gateReadyAtMs
+    });
     return snapshot(state);
   }
 
@@ -461,10 +701,18 @@
     if (state.phase !== "speed_decision") throw new Error("speed action is not available");
     const speed = SPEEDS[speedId];
     if (!speed) throw new Error("unknown speed action");
+    if (MECHANISM_CONFIG.customerMessagesUEnabled) {
+      const messageWindow = state.currentMessageWindow;
+      if (!messageWindow?.gateReadyAtMs) throw new Error("trip pace submitted before the shared message gate opened");
+      if (messageWindow.messageScheduled && !messageWindow.customerMessageSeen) {
+        throw new Error("trip pace submitted before the scheduled customer message was exposed");
+      }
+    }
     const decision = closeDecision(state, "trip_pace");
     const { wave, node } = currentTruth(state);
     const scenario = node.scenario || wave.scenario;
     const routeAction = state.currentRouteAction;
+    const messageWindow = state.currentMessageWindow;
     const incident = state.rng() < speed.incidentChance;
     const incidentDelay = incident ? INCIDENT_DELAY_SECONDS : 0;
     const rideToCustomer = Math.round(180 * speed.travelFactor);
@@ -506,6 +754,20 @@
       routeDecisionId: state.currentRouteDecisionId,
       tripPaceDecisionId: decision.decisionId,
       speedId,
+      ...(MECHANISM_CONFIG.customerMessagesUEnabled ? {
+        customerMessageCondition: messageWindow.condition,
+        customerMessageScheduled: messageWindow.messageScheduled,
+        customerMessageSeen: messageWindow.customerMessageSeen,
+        customerMessageSoundPlayed: messageWindow.soundPlayed,
+        customerMessageScheduledDelayMs: messageWindow.scheduledDelayMs,
+        customerMessageActualDelayMs: messageWindow.exposedAtMs === null
+          ? null
+          : Math.max(0, messageWindow.exposedAtMs - messageWindow.openedAtMs),
+        responseTimeAfterMessageMs: messageWindow.exposedAtMs === null
+          ? null
+          : Math.max(0, Date.now() - messageWindow.exposedAtMs),
+        responseTimeAfterGateMs: Math.max(0, Date.now() - messageWindow.gateReadyAtMs)
+      } : {}),
       tripPaceScope: "all_road_legs_until_both_orders_delivered",
       incident,
       incidentDelay,
@@ -538,7 +800,17 @@
       routeAction,
       action: speedId,
       responseTimeMs: decision.responseTimeMs,
-      tripPaceScope: result.tripPaceScope
+      tripPaceScope: result.tripPaceScope,
+      ...(MECHANISM_CONFIG.customerMessagesUEnabled ? {
+        customerMessageCondition: result.customerMessageCondition,
+        customerMessageScheduled: result.customerMessageScheduled,
+        customerMessageSeen: result.customerMessageSeen,
+        customerMessageSoundPlayed: result.customerMessageSoundPlayed,
+        customerMessageScheduledDelayMs: result.customerMessageScheduledDelayMs,
+        customerMessageActualDelayMs: result.customerMessageActualDelayMs,
+        responseTimeAfterMessageMs: result.responseTimeAfterMessageMs,
+        responseTimeAfterGateMs: result.responseTimeAfterGateMs
+      } : {})
     });
     logEvent(state, {
       eventType: "choice_outcome",
@@ -653,6 +925,12 @@
       currentNode: truth ? publicNode(truth.wave, truth.node) : null,
       currentRouteAction: state.currentRouteAction,
       currentResult: state.currentResult ? { ...state.currentResult } : null,
+      customerMessagesUEnabled: MECHANISM_CONFIG.customerMessagesUEnabled,
+      currentCustomerMessage: state.currentMessageWindow?.customerMessageSeen ? {
+        condition: state.currentMessageWindow.condition,
+        customerMessageSeen: true,
+        soundPlayed: state.currentMessageWindow.soundPlayed
+      } : null,
       visibleHistory: state.wavePublicHistory.map((item) => ({ ...item })),
       routeCounts: { ...state.routeCounts },
       speedCounts: { ...state.speedCounts },
@@ -672,7 +950,10 @@
           pilotTrials: Mainline.structure.pilotTrials,
           experimentTrials: Mainline.structure.experimentTrials
         },
-        researchScope: { ...Mainline.researchScope },
+        researchScope: {
+          ...Mainline.researchScope,
+          customerMessagesUEnabled: MECHANISM_CONFIG.customerMessagesUEnabled
+        },
         simulatorVersion: VERSION,
         copyVersion: COPY_VERSION,
         experienceCopyVersion: EXPERIENCE_COPY_VERSION,
@@ -691,6 +972,28 @@
         shiftPeriod: { ...SHIFT_PERIOD },
         prepRemainingSeconds: PREP_REMAINING_SECONDS,
         prepDistributions: PREP_DISTRIBUTIONS,
+        ...(MECHANISM_CONFIG.kCalibrated ? {
+          mechanismVariant: MECHANISM_CONFIG.publicId,
+          candidateBuildId: MECHANISM_CONFIG.candidateBuildId,
+          loadAllocationPolicy: MECHANISM_CONFIG.loadAllocationPolicy,
+          loadPriorByExperience: { ...MECHANISM_CONFIG.beliefBusyPrior },
+          dataCompatibility: MECHANISM_CONFIG.dataCompatibility
+        } : {}),
+        ...(MECHANISM_CONFIG.customerMessagesUEnabled ? {
+          customerMessageDesign: {
+            eventOrder: "route_choice_then_message_window_then_trip_pace_choice",
+            states: CUSTOMER_MESSAGE_STATES,
+            gateDurationMs: CUSTOMER_MESSAGE_GATE_MS,
+            delayRangeMs: { ...CUSTOMER_MESSAGE_DELAY_RANGE_MS },
+            targetCountsAt72Trials: { none: 36, ordinary: 18, urging: 18 },
+            stratification: "objective_scenario_kind",
+            changesEnvironmentState: false,
+            changesDeadline: false,
+            changesIncome: false,
+            changesIncidentRisk: false,
+            entersMerchantBeliefLikelihood: false
+          }
+        } : {}),
         urgencyStructure: {
           persistentWithinSegment: ["merchant", "loadState"],
           variesByTrial: "deadline scenario",
@@ -731,8 +1034,14 @@
     MODES,
     ROUTE_ACTIONS,
     SPEEDS,
+    MECHANISM_VARIANTS,
+    MECHANISM_VARIANT,
+    MECHANISM_CONFIG,
     PREP_REMAINING_SECONDS,
     PREP_DISTRIBUTIONS,
+    CUSTOMER_MESSAGE_STATES,
+    CUSTOMER_MESSAGE_GATE_MS,
+    CUSTOMER_MESSAGE_DELAY_RANGE_MS,
     waitFeedbackOutcome,
     EXPERIENCE_COPY,
     MERCHANTS,
@@ -741,6 +1050,9 @@
     SLACK_SCENARIOS,
     scenarioBankForWaveCount,
     balancedPlanRows,
+    balancedCustomerMessageStates,
+    buildCustomerMessageSchedule,
+    customerMessagePlanFor,
     urgencySequenceForProfile,
     capacityForNodes,
     buildPlan,
@@ -748,6 +1060,8 @@
     start,
     arriveAtStore,
     chooseRoute,
+    markCustomerMessageExposed,
+    markCustomerMessageGateReady,
     resolveChoice,
     showResult,
     continueAfterResult,

@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#102f30">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'">
   <title>洪流骑手 · 等还是先送</title>
   <link rel="stylesheet" href="./pomdp-v2.css">
   <script type="importmap">
@@ -98,6 +100,14 @@
       <button id="goButton" class="primary-button" type="button" disabled>先选一个档位</button>
     </section>
 
+    <aside id="customerMessageCard" class="customer-message-card is-hidden" role="status" aria-live="assertive" aria-atomic="true">
+      <span class="customer-message-avatar" aria-hidden="true">客</span>
+      <div>
+        <small>顾客发来消息</small>
+        <strong id="customerMessageText">您好，送到后放门口就行，谢谢。</strong>
+      </div>
+    </aside>
+
     <aside id="feedbackCard" class="feedback-card is-hidden" role="status" aria-live="assertive">
       <span id="feedbackIcon">✓</span>
       <div><small id="feedbackKicker">回到店里</small><strong id="feedbackTitle">餐已经做好了</strong><p id="feedbackText">你不用继续等，接着去送新单。</p></div>
@@ -174,7 +184,7 @@
             <p id="notebookTutorialFact2" class="history-fact-row is-hidden"></p>
           </div>
           <div class="notebook-tutorial-rules">
-            <article><b>表情怎么读</b><span>表情大致表示这次等得轻松还是很久；带折返箭头表示送完回来后才取餐。</span></article>
+            <article><b>表情怎么读</b><span id="notebookTutorialHowToRead">表情大致表示这次等得轻松还是很久；带折返箭头表示送完回来后才取餐。</span></article>
             <article><b>它不会替你判断</b><span>这里不会直接写店里现在忙不忙。</span></article>
             <article><b>换店会重开</b><span>到了下一家店，旧店的笔记不会带过去。</span></article>
           </div>

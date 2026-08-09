@@ -82,14 +82,15 @@
     const navigationEntry = performance.getEntriesByType?.("navigation")?.[0] || null;
     const navigationType = navigationEntry?.type || "unknown";
     const storage = safePersistentStorage(browser);
-    const storageKey = `${VERSION}:${BUILD_ID}:${options.mode || "missing"}:${options.participantId || "missing"}:${options.seed || "missing"}`;
+    const activeBuildId = options.buildId || BUILD_ID;
+    const storageKey = `${VERSION}:${activeBuildId}:${options.mode || "missing"}:${options.participantId || "missing"}:${options.seed || "missing"}`;
     const previousMarker = safeJsonParse(storage?.getItem(storageKey));
     const instanceId = browser.crypto?.randomUUID?.()
       || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const previousIncomplete = Boolean(previousMarker && previousMarker.completed !== true);
     const state = {
       version: VERSION,
-      buildId: options.buildId || BUILD_ID,
+      buildId: activeBuildId,
       instanceId,
       bootAtIso,
       bootAtMs,
@@ -373,6 +374,55 @@
     Object.entries(expectedCounts).forEach(([type, count]) => {
       check(`event_count_${type}`, eventCounts[type] === count, eventCounts[type], count);
     });
+
+    const customerMessagesUEnabled = exportedData?.configuration?.researchScope?.customerMessagesUEnabled === true;
+    if (customerMessagesUEnabled) {
+      const windows = log.filter((event) => event.eventType === "customer_message_window_open");
+      const exposures = log.filter((event) => event.eventType === "customer_message_exposure");
+      const gates = log.filter((event) => event.eventType === "customer_message_gate_ready");
+      const speeds = log.filter((event) => event.eventType === "speed_choice");
+      const scheduledWindows = windows.filter((event) => event.messageScheduled);
+      check("u_message_window_count_exact", windows.length === expected, windows.length, expected);
+      check("u_message_gate_count_exact", gates.length === expected, gates.length, expected);
+      check("u_scheduled_messages_all_exposed", exposures.length === scheduledWindows.length,
+        { exposures: exposures.length, scheduled: scheduledWindows.length },
+        { exposures: scheduledWindows.length, scheduled: scheduledWindows.length });
+      check("u_all_speed_choices_have_condition_and_exposure_state", speeds.every((event) => (
+        ["none", "ordinary", "urging"].includes(event.customerMessageCondition)
+          && event.customerMessageScheduled === (event.customerMessageCondition !== "none")
+          && event.customerMessageSeen === (event.customerMessageCondition !== "none")
+          && finiteNonNegative(event.responseTimeAfterGateMs)
+          && (event.customerMessageCondition === "none"
+            ? event.responseTimeAfterMessageMs === null
+            : finiteNonNegative(event.responseTimeAfterMessageMs))
+      )), speeds.filter((event) => !["none", "ordinary", "urging"].includes(event.customerMessageCondition)).length, 0);
+      const orderFailures = [];
+      for (let waveIndex = 0; waveIndex < Number(session.waveCount || 0); waveIndex += 1) {
+        for (let nodeIndex = 0; nodeIndex < Number(session.nodesPerWave || 0); nodeIndex += 1) {
+          const indexed = log.map((event, index) => ({ event, index })).filter(({ event }) => (
+            event.waveIndex === waveIndex && event.nodeIndex === nodeIndex
+          ));
+          const routeIndex = indexed.find(({ event }) => event.eventType === "route_choice")?.index ?? -1;
+          const speedIndex = indexed.find(({ event }) => event.eventType === "speed_choice")?.index ?? -1;
+          const exposureIndex = indexed.find(({ event }) => event.eventType === "customer_message_exposure")?.index ?? null;
+          const condition = indexed.find(({ event }) => event.eventType === "speed_choice")?.event?.customerMessageCondition;
+          const ordered = routeIndex >= 0 && speedIndex > routeIndex
+            && (condition === "none" ? exposureIndex === null : exposureIndex > routeIndex && exposureIndex < speedIndex);
+          if (!ordered) orderFailures.push(`w${waveIndex}-n${nodeIndex}`);
+        }
+      }
+      check("u_route_message_speed_event_order", orderFailures.length === 0, orderFailures, []);
+      if (session.mode === "experiment") {
+        const counts = Object.fromEntries(["none", "ordinary", "urging"].map((condition) => [
+          condition,
+          speeds.filter((event) => event.customerMessageCondition === condition).length
+        ]));
+        check("u_experiment_condition_counts", counts.none === 36 && counts.ordinary === 18 && counts.urging === 18,
+          counts, { none: 36, ordinary: 18, urging: 18 });
+      }
+      check("u_sound_attempt_logged_for_exposed_messages", exposures.every((event) => typeof event.soundPlayed === "boolean"),
+        exposures.filter((event) => typeof event.soundPlayed !== "boolean").length, 0, "warning");
+    }
 
     const trialProblems = [];
     const duplicateTrialEvents = [];

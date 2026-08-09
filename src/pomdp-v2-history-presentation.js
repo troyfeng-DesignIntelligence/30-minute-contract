@@ -9,6 +9,42 @@
   "use strict";
 
   if (!Mainline?.protocol) throw new Error("POMDP mainline manifest must load before history presentation");
+  function requestedMechanismVariant() {
+    const environmentValue = typeof process !== "undefined" && process?.env
+      ? process.env.POMDP_MECHANISM_VARIANT
+      : null;
+    let queryValue = null;
+    if (typeof location !== "undefined" && typeof location.search === "string") {
+      queryValue = new URLSearchParams(location.search).get("mechanism");
+    }
+    const normalized = String(environmentValue || queryValue || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[.-]+/g, "_");
+    if (["k_u_unified_v1", "k_u", "u_unified", "unified"].includes(normalized)) return "k_u_unified_v1";
+    if (["k_calibrated_v1", "candidate", "k_prior_calibration"].includes(normalized)) return "k_calibrated_v1";
+    return "frozen_v2_0";
+  }
+  const MECHANISM_VARIANT = requestedMechanismVariant();
+
+  const calibratedHistory = MECHANISM_VARIANT === "k_calibrated_v1" || MECHANISM_VARIANT === "k_u_unified_v1";
+  const candidateReturnPresentation = calibratedHistory
+    ? Object.freeze({
+      visualCode: "return_observed",
+      family: "emotion",
+      route: "return",
+      expression: "patient",
+      accessibleLabel: "送完回来时餐已经做好",
+      text: "送完回来时，餐已经做好"
+    })
+    : Object.freeze({
+      visualCode: "return_relieved",
+      family: "emotion",
+      route: "return",
+      expression: "relieved",
+      accessibleLabel: "送完回来直接取到餐",
+      text: "送完回来，直接取到餐了"
+    });
 
   const PRESENTATIONS = Object.freeze({
     ready_after_short_wait: Object.freeze({
@@ -35,14 +71,7 @@
       accessibleLabel: "等了很久才取到餐",
       text: "等了很久，才取到餐"
     }),
-    ready_on_return: Object.freeze({
-      visualCode: "return_relieved",
-      family: "emotion",
-      route: "return",
-      expression: "relieved",
-      accessibleLabel: "送完回来直接取到餐",
-      text: "送完回来，直接取到餐了"
-    }),
+    ready_on_return: candidateReturnPresentation,
     still_not_ready_on_return: Object.freeze({
       visualCode: "return_weary",
       family: "emotion",
@@ -67,7 +96,10 @@
   }
 
   return Object.freeze({
-    VERSION: Mainline.protocol.historyPresentationVersion,
+    VERSION: calibratedHistory
+      ? "rider-history-visual-1.2-route-conditioned-candidate"
+      : Mainline.protocol.historyPresentationVersion,
+    MECHANISM_VARIANT,
     PRESENTATIONS,
     FALLBACK,
     getPresentation

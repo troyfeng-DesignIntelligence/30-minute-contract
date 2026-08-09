@@ -2,10 +2,13 @@ import { createFirstPersonWorld } from "./fp-render.js";
 
 const Sim = window.PomdpCourierV2;
 if (!Sim) throw new Error("PomdpCourierV2 failed to load");
+const kCalibratedCandidate = Sim.MECHANISM_CONFIG.kCalibrated === true;
+const customerMessagesUEnabled = Sim.MECHANISM_CONFIG.customerMessagesUEnabled === true;
 const HistoryPresentation = window.PomdpHistoryPresentation;
 if (!HistoryPresentation) throw new Error("PomdpHistoryPresentation failed to load");
 const Telemetry = window.PomdpExperimentTelemetry;
 if (!Telemetry) throw new Error("PomdpExperimentTelemetry failed to load");
+const activeBuildId = Sim.MECHANISM_CONFIG.candidateBuildId || Telemetry.BUILD_ID;
 
 const query = new URLSearchParams(location.search);
 const requestedMode = query.get("mode");
@@ -27,7 +30,7 @@ const requestedRenderStyle = query.get("look") || "county";
 const formalGameOptions = Object.freeze({ mode, nodesPerWave: 6, participantId });
 const expectedTrialCount = Sim.MODES[mode] * formalGameOptions.nodesPerWave;
 const experimentTelemetry = Telemetry.createExperimentTelemetry({
-  buildId: Telemetry.BUILD_ID,
+  buildId: activeBuildId,
   participantId,
   participantIdProvided,
   seed,
@@ -48,12 +51,12 @@ const els = Object.fromEntries([
   "merchantLabel", "storeProgress", "storeProgressTitle", "storeProgressNodes", "storeProgressLabel", "capacityStatus", "capacityCells", "incomeStatus", "incomeValue", "travelPrompt", "travelIcon", "travelTitle", "travelDetail",
   "travelProgress", "routeDecision", "experienceText", "riderNotebook", "notebookMerchant", "historyFact1", "historyFact2", "carriedUrgencyLabel", "newUrgencyLabel",
   "carriedUrgency", "newUrgency", "carriedDestination", "platformText", "carriedOrderCard", "newOrderCard", "routeActions", "speedDecision",
-  "chosenRouteText", "goButton", "feedbackCard", "feedbackIcon", "feedbackKicker", "feedbackTitle",
+  "chosenRouteText", "goButton", "customerMessageCard", "customerMessageText", "feedbackCard", "feedbackIcon", "feedbackKicker", "feedbackTitle",
   "feedbackText", "rewardBurst", "rewardBurstLabel", "rewardBurstValue", "rewardBurstLoss", "resultCard", "resultTitle", "carriedResult", "carriedLateLoss", "newResult", "newLateLoss", "incidentResult",
   "incomeResult", "resultGrid", "incidentConsequences", "incidentDelayResult", "incidentCapacityResult", "continueButton", "startScreen", "startButton", "modeDescription", "briefingModal",
   "briefingStep", "briefingProgress", "briefingKicker", "briefingTitle", "briefingLead",
   "briefingVisual", "briefingNext", "tutorialCoach", "coachStep", "coachTitle", "coachText", "coachNext",
-  "notebookTutorialModal", "notebookTutorialStep", "notebookTutorialMerchant", "notebookTutorialFact1", "notebookTutorialFact2", "notebookTutorialNext",
+  "notebookTutorialModal", "notebookTutorialStep", "notebookTutorialMerchant", "notebookTutorialFact1", "notebookTutorialFact2", "notebookTutorialHowToRead", "notebookTutorialNext",
   "gearLever", "breakModal", "breakTitle", "breakNextText", "breakButton", "summaryModal", "summaryGrid",
   "breakBonus", "breakBonusTitle", "breakBonusText", "downloadButton", "restartButton", "debugPanel"
 ].map((id) => [id, byId(id)]));
@@ -172,9 +175,15 @@ const BRIEFING = Object.freeze([
   {
     section: "反馈",
     kicker: "第一组跑完以后",
-    title: "刚才的出餐结果，可以留在心里",
-    lead: "同一家店的六组订单里，临时忙闲通常不会立刻翻过来。屏幕会替你保留最近两次取餐事实，但不会直接告诉你店里忙不忙。换店后，这些临时记录会清空。",
-    cards: [
+    title: kCalibratedCandidate ? "骑手笔记只记下你亲眼遇到的事" : "刚才的出餐结果，可以留在心里",
+    lead: kCalibratedCandidate
+      ? "同一家店的六组订单里，临时忙闲通常会持续一阵。留下等餐时，你知道自己等了多久；先送再回来时，你只知道回来那刻餐好了没有。笔记保留最近两次事实，但不会替你判断店里忙不忙。"
+      : "同一家店的六组订单里，临时忙闲通常不会立刻翻过来。屏幕会替你保留最近两次取餐事实，但不会直接告诉你店里忙不忙。换店后，这些临时记录会清空。",
+    cards: kCalibratedCandidate ? [
+      ["留店等餐", "记下等了多久", "这是从到店到出餐的完整等待事实。"],
+      ["先送再回来", "记下回来时好了没有", "它不能告诉你餐究竟提前多久做好。"],
+      ["换到下一家店", "重新判断", "这家店的临时记录会清空。"]
+    ] : [
       ["等到了", "这一刻可能比较顺", "下一组仍要看时间，不能闭眼照搬。"],
       ["一直没好", "这一刻可能比较忙", "再遇到紧单时，继续等就要更谨慎。"],
       ["下一段", "重新判断", "接单余力会恢复，店里的临时情况也会重置。"]
@@ -194,12 +203,105 @@ let lastCapacity = null;
 let lastIncome = 0;
 let incomeAnimationFrame = 0;
 let rewardTimer = 0;
-const TRAINING_STEP_COUNT = 12;
+let messageGateReady = !customerMessagesUEnabled;
+let messageWindowToken = 0;
+let messageAudioContext = null;
+const TRAINING_STEP_COUNT = customerMessagesUEnabled ? 13 : 12;
 
 function hide(element) { element.classList.add("is-hidden"); }
 function show(element) { element.classList.remove("is-hidden"); }
+function hideCustomerMessage() {
+  hide(els.customerMessageCard);
+  els.pomdpGame.classList.remove("has-customer-message");
+}
+function showCustomerMessage() {
+  show(els.customerMessageCard);
+  els.pomdpGame.classList.add("has-customer-message");
+}
 function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 function duration(normalMilliseconds) { return fastMotion ? Math.min(90, normalMilliseconds) : normalMilliseconds; }
+
+function customerMessageCopy(condition) {
+  return condition === "urging"
+    ? "您好，麻烦尽量快点送到，谢谢。"
+    : "您好，送到后放门口就行，谢谢。";
+}
+
+async function playCustomerMessageTone() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return false;
+    messageAudioContext ||= new AudioContextClass();
+    if (messageAudioContext.state === "suspended") await messageAudioContext.resume();
+    const oscillator = messageAudioContext.createOscillator();
+    const gain = messageAudioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(720, messageAudioContext.currentTime);
+    gain.gain.setValueAtTime(0.0001, messageAudioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.075, messageAudioContext.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, messageAudioContext.currentTime + 0.19);
+    oscillator.connect(gain).connect(messageAudioContext.destination);
+    oscillator.start();
+    oscillator.stop(messageAudioContext.currentTime + 0.2);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function updateGoButtonState() {
+  const speedButtonsLocked = customerMessagesUEnabled && !messageGateReady;
+  els.speedDecision.querySelectorAll("[data-speed]").forEach((button) => {
+    button.disabled = speedButtonsLocked;
+    button.setAttribute("aria-disabled", String(speedButtonsLocked));
+  });
+  if (speedButtonsLocked) {
+    els.goButton.disabled = true;
+    els.goButton.textContent = "稍等片刻";
+    return;
+  }
+  if (!selectedSpeed) {
+    els.goButton.disabled = true;
+    els.goButton.textContent = "先选一个档位";
+    return;
+  }
+  els.goButton.disabled = false;
+  els.goButton.textContent = `${Sim.SPEEDS[selectedSpeed].label}出发`;
+}
+
+async function runCustomerMessageWindow() {
+  if (!customerMessagesUEnabled) return;
+  const token = ++messageWindowToken;
+  const plan = Sim.customerMessagePlanFor(game);
+  messageGateReady = false;
+  hideCustomerMessage();
+  updateGoButtonState();
+  const timeScale = fastMotion ? 0.04 : 1;
+  const exposureTask = plan.messageScheduled ? (async () => {
+    await delay(Math.max(30, Math.round(plan.scheduledDelayMs * timeScale)));
+    if (token !== messageWindowToken || game.phase !== "speed_decision") return;
+    els.customerMessageText.textContent = customerMessageCopy(plan.condition);
+    els.customerMessageCard.dataset.condition = plan.condition;
+    showCustomerMessage();
+    replayAnimation(els.customerMessageCard, "is-arriving");
+    const soundPlayed = await playCustomerMessageTone();
+    Sim.markCustomerMessageExposed(game, { soundPlayed });
+    if (trainingActive && Sim.snapshot(game).nodeIndex === 0) {
+      await showCoach(
+        els.customerMessageCard,
+        "顾客有时会在你定好路线后发消息",
+        "普通消息和催促消息都会从这里出现。消息不会改平台时间、收入或事故风险；整趟骑多快，还是由你决定。"
+      );
+    }
+  })() : Promise.resolve();
+  await delay(Math.max(90, Math.round(Sim.CUSTOMER_MESSAGE_GATE_MS * timeScale)));
+  await exposureTask;
+  if (token !== messageWindowToken || game.phase !== "speed_decision") return;
+  Sim.markCustomerMessageGateReady(game);
+  messageGateReady = true;
+  updateGoButtonState();
+  updateDebug();
+}
 
 function replayAnimation(element, className) {
   element.classList.remove(className);
@@ -283,6 +385,9 @@ function showNotebookTutorial(snapshot) {
   renderHistoryFactRow(els.notebookTutorialFact1, recent[0], "上一次", "刚才的情况已经记下");
   if (recent[1]) renderHistoryFactRow(els.notebookTutorialFact2, recent[1], "上上次");
   els.notebookTutorialFact2.classList.toggle("is-hidden", !recent[1]);
+  if (kCalibratedCandidate) {
+    els.notebookTutorialHowToRead.textContent = "留店等餐时，表情大致表示等了多久；带折返箭头时，只表示回来那刻餐好了没有。";
+  }
   show(els.notebookTutorialModal);
   return new Promise((resolve) => { notebookTutorialResolve = resolve; });
 }
@@ -359,6 +464,8 @@ function renderHud(snapshot = Sim.snapshot(game)) {
 }
 
 function hidePlaySurfaces() {
+  messageWindowToken += 1;
+  hideCustomerMessage();
   [els.routeDecision, els.riderNotebook, els.speedDecision, els.feedbackCard, els.rewardBurst, els.resultCard, els.travelPrompt].forEach(hide);
 }
 
@@ -369,7 +476,13 @@ function renderBriefing() {
   els.briefingTitle.textContent = "你就是今天跑单的骑手";
   els.briefingLead.textContent = "";
   els.briefingVisual.replaceChildren(...[
-    { label: "你现在是骑手", title: "平台已经把单排好了", text: "导航会自动带路。到了店，你来决定等到餐好再一起送，还是先送手上的。" },
+    {
+      label: "你现在是骑手",
+      title: "平台已经把单排好了",
+      text: customerMessagesUEnabled
+        ? "导航会自动带路。你先安排路线，之后顾客有时会发来消息，再决定整趟骑多快。"
+        : "导航会自动带路。到了店，你来决定等到餐好再一起送，还是先送手上的。"
+    },
     { label: "今天要多赚钱", title: "准时送，路上别出事", text: "准时能拿完整收入；同一次事故会让眼前这趟多耽误约一分半，也会让后面的接单机会变少。" },
     { label: "同一家店连续跑六组", title: "刚才的取餐情况会记下来", text: "不用硬记。换店时会提醒你，骑手笔记也会重新开始。", visual: "same-store-six-groups" }
   ].map(({ label, title, text, visual }) => {
@@ -570,9 +683,10 @@ async function approachStore() {
 
 function renderSpeedDecision(routeAction) {
   selectedSpeed = null;
+  messageGateReady = !customerMessagesUEnabled;
+  hideCustomerMessage();
   els.speedDecision.querySelectorAll("[data-speed]").forEach((button) => button.setAttribute("aria-checked", "false"));
-  els.goButton.disabled = true;
-  els.goButton.textContent = "待选档";
+  updateGoButtonState();
   els.chosenRouteText.textContent = routeAction === "wait_until_ready"
     ? "留在店里等到餐做好，再把两单一起送。两单送完前都按同一档骑。"
     : "先送手上的，之后折返回来取餐。两单送完前都按同一档骑。";
@@ -601,8 +715,8 @@ function feedbackCopy(result) {
   if (result.feedbackOutcome === "ready_on_return") return {
     kicker: "送完手上这单，回到店里",
     title: "餐已经做好了",
-    text: "现在可以直接取走。",
-    icon: "✓"
+    text: kCalibratedCandidate ? "你只知道回来时已经能取餐。" : "现在可以直接取走。",
+    icon: kCalibratedCandidate ? "↩" : "✓"
   };
   return {
     kicker: "回来后又等了一会",
@@ -619,7 +733,8 @@ async function flashFeedback(result) {
   els.feedbackText.textContent = copy.text;
   els.feedbackIcon.textContent = copy.icon;
   els.feedbackCard.dataset.tone = [
-    "ready_after_short_wait", "ready_after_medium_wait", "ready_after_long_wait", "ready_on_return"
+    "ready_after_short_wait", "ready_after_medium_wait", "ready_after_long_wait",
+    ...(kCalibratedCandidate ? [] : ["ready_on_return"])
   ].includes(result.feedbackOutcome)
     ? "good"
     : "watch";
@@ -629,7 +744,9 @@ async function flashFeedback(result) {
     await showCoach(
       els.feedbackCard,
       "留意取餐店情况",
-      "店家的出餐速度说明了今天实际忙不忙，能为你再回到这家店时提供参考。"
+      kCalibratedCandidate
+        ? "刚才发生的事只是一条线索。一次结果不能直接说明店里忙不忙，但能帮助你继续判断今天这一阵的情况。"
+        : "店家的出餐速度说明了今天实际忙不忙，能为你再回到这家店时提供参考。"
     );
   } else {
     await delay(fastMotion ? 360 : 950);
@@ -743,8 +860,10 @@ function renderResult(result) {
 }
 
 async function submitSpeed() {
-  if (!selectedSpeed || interactionLocked) return;
+  if (!selectedSpeed || !messageGateReady || interactionLocked) return;
   interactionLocked = true;
+  messageWindowToken += 1;
+  hideCustomerMessage();
   const snapshotBefore = Sim.snapshot(game);
   const result = Sim.resolveChoice(game, selectedSpeed);
   world.setSpeedTone(selectedSpeed);
@@ -808,7 +927,7 @@ function sanitizeFilePart(value) {
 
 function assembleExportPayload() {
   const payload = Sim.exportData(game);
-  payload.configuration.buildId = Telemetry.BUILD_ID;
+  payload.configuration.buildId = activeBuildId;
   payload.configuration.historyPresentationVersion = HistoryPresentation.VERSION;
   payload.visualRuntime = world.getVisualRuntime();
   payload.runtimeTelemetry = experimentTelemetry.snapshot(payload.visualRuntime);
@@ -895,7 +1014,11 @@ async function startTrainingShift() {
   trainingActive = true;
   trainingStep = 0;
   notebookTutorialShown = false;
-  game = Sim.createGame(seed ^ 0x7a11, { mode: "preview", nodesPerWave: 2 });
+  game = Sim.createGame(seed ^ 0x7a11, {
+    mode: "preview",
+    nodesPerWave: 2,
+    messageScheduleMode: customerMessagesUEnabled ? "tutorial" : undefined
+  });
   show(els.hud);
   Sim.start(game);
   renderHud();
@@ -937,6 +1060,9 @@ async function startFormalSession() {
   els.feedbackKicker.textContent = "试跑结束";
   els.feedbackTitle.textContent = "正式开工！";
   els.feedbackText.textContent = "每家店连续跑六组。骑手笔记只留本店最近两次的取餐情况；到了下一家店，会重新开始记录。";
+  if (customerMessagesUEnabled) {
+    els.feedbackText.textContent += " 顾客消息只会在路线定好后偶尔出现，不会暗中改变订单数值。";
+  }
   show(els.feedbackCard);
   await delay(fastMotion ? 250 : 1100);
   hide(els.feedbackCard);
@@ -982,19 +1108,19 @@ els.routeDecision.querySelectorAll("[data-route]").forEach((button) => {
       );
     }
     interactionLocked = false;
+    void runCustomerMessageWindow();
     updateDebug();
   });
 });
 
 els.speedDecision.querySelectorAll("[data-speed]").forEach((button) => {
   button.addEventListener("click", () => {
-    if (interactionLocked) return;
+    if (interactionLocked || (customerMessagesUEnabled && !messageGateReady)) return;
     selectedSpeed = button.dataset.speed;
     els.speedDecision.querySelectorAll("[data-speed]").forEach((option) => {
       option.setAttribute("aria-checked", String(option === button));
     });
-    els.goButton.disabled = false;
-    els.goButton.textContent = `${Sim.SPEEDS[selectedSpeed].label}出发`;
+    updateGoButtonState();
     replayAnimation(button, "is-shifting");
   });
 });
@@ -1013,7 +1139,7 @@ els.breakButton.addEventListener("click", () => {
 });
 els.restartButton.addEventListener("click", () => location.reload());
 els.downloadButton.addEventListener("click", () => {
-  const filename = `${sanitizeFilePart(participantId)}_${seed}_${sanitizeFilePart(Telemetry.BUILD_ID)}.json`;
+  const filename = `${sanitizeFilePart(participantId)}_${seed}_${sanitizeFilePart(activeBuildId)}.json`;
   experimentTelemetry.markDownloadAttempt(filename);
   const artifact = prepareExportArtifact();
   if (!artifact) return;
@@ -1037,6 +1163,11 @@ if (debug) {
         else if (game.phase === "route_decision") {
           Sim.chooseRoute(game, game.nodeIndex % 2 ? "wait_until_ready" : "deliver_carried_first");
         } else if (game.phase === "speed_decision") {
+          if (customerMessagesUEnabled) {
+            const messagePlan = Sim.customerMessagePlanFor(game);
+            if (messagePlan.messageScheduled) Sim.markCustomerMessageExposed(game, { soundPlayed: false });
+            Sim.markCustomerMessageGateReady(game);
+          }
           Sim.resolveChoice(game, game.nodeIndex % 3 ? "normal" : "rush");
           Sim.showResult(game);
         } else if (game.phase === "result") Sim.continueAfterResult(game);
