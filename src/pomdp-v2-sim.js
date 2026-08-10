@@ -70,6 +70,28 @@
       publicId: "k-u-unified-v1",
       candidateBuildId: "pomdp-k-u-unified-candidate-v1.1-attention-pressure",
       dataCompatibility: "pomdp-k-u-unified-candidate-v1.1-attention-pressure_only",
+      customerMessageCopyVersion: "customer-message-copy-v1.1-polite",
+      customerMessageUiPerformanceEnabled: false,
+      customerMessageGateMs: 2300,
+      customerMessageDelayRangeMs: Object.freeze({ minimum: 700, maximum: 2200 }),
+      kCalibrated: true,
+      customerMessagesUEnabled: true,
+      loadAllocationPolicy: "usually_fast_3_smooth_1_busy__variable_2_2__often_slow_1_smooth_3_busy",
+      prepDistributions: Object.freeze({
+        smooth: Object.freeze([0.60, 0.30, 0.08, 0.02]),
+        busy: Object.freeze([0.08, 0.22, 0.35, 0.35])
+      }),
+      beliefBusyPrior: Object.freeze({ usually_fast: 0.25, variable: 0.50, often_slow: 0.75 })
+    }),
+    k_u_unified_v1_2: Object.freeze({
+      id: "k_u_unified_v1_2",
+      publicId: "k-u-unified-v1.2",
+      candidateBuildId: "pomdp-k-u-unified-candidate-v1.2-copy-review-r2",
+      dataCompatibility: "pomdp-k-u-unified-candidate-v1.2-copy-review-r2_only",
+      customerMessageCopyVersion: "customer-message-copy-v1.2-direct-pressure",
+      customerMessageUiPerformanceEnabled: true,
+      customerMessageGateMs: 1200,
+      customerMessageDelayRangeMs: Object.freeze({ minimum: 350, maximum: 700 }),
       kCalibrated: true,
       customerMessagesUEnabled: true,
       loadAllocationPolicy: "usually_fast_3_smooth_1_busy__variable_2_2__often_slow_1_smooth_3_busy",
@@ -92,6 +114,7 @@
       .trim()
       .toLowerCase()
       .replace(/[.-]+/g, "_");
+    if (["k_u_unified_v1_2", "k_u_v1_2", "u_stronger", "stronger_u"].includes(normalized)) return "k_u_unified_v1_2";
     if (["k_u_unified_v1", "k_u", "u_unified", "unified"].includes(normalized)) return "k_u_unified_v1";
     if (["k_calibrated_v1", "candidate", "k_prior_calibration"].includes(normalized)) return "k_calibrated_v1";
     return "frozen_v2_0";
@@ -100,26 +123,27 @@
   const MECHANISM_CONFIG = MECHANISM_VARIANTS[MECHANISM_VARIANT];
   const PREP_DISTRIBUTIONS = MECHANISM_CONFIG.prepDistributions;
   const CUSTOMER_MESSAGE_STATES = Object.freeze(["none", "ordinary", "urging"]);
-  const CUSTOMER_MESSAGE_GATE_MS = 2300;
-  const CUSTOMER_MESSAGE_DELAY_RANGE_MS = Object.freeze({ minimum: 700, maximum: 2200 });
+  const CUSTOMER_MESSAGE_GATE_MS = MECHANISM_CONFIG.customerMessageGateMs || 2300;
+  const CUSTOMER_MESSAGE_DELAY_RANGE_MS = MECHANISM_CONFIG.customerMessageDelayRangeMs
+    || Object.freeze({ minimum: 700, maximum: 2200 });
   const EXPERIENCE_COPY = Object.freeze({
     usually_fast: Object.freeze([
-      Object.freeze({ id: "usually_fast_01", text: "你以前午高峰跑这家店：大多数时候出餐比较快。" }),
-      Object.freeze({ id: "usually_fast_02", text: "你以前午高峰跑这家店：通常不用等太久。" }),
-      Object.freeze({ id: "usually_fast_03", text: "你以前午高峰跑这家店：多数时候到了没多久就能取餐。" }),
-      Object.freeze({ id: "usually_fast_04", text: "你以前午高峰跑这家店：一般出餐挺利索。" })
+      Object.freeze({ id: "usually_fast_01", text: "你以前的经验：这家店大多数时候出餐比较快。" }),
+      Object.freeze({ id: "usually_fast_02", text: "你以前的经验：通常不用等太久。" }),
+      Object.freeze({ id: "usually_fast_03", text: "你以前的经验：这家店多数时候到了一会就能取餐。" }),
+      Object.freeze({ id: "usually_fast_04", text: "你以前的经验：这家店一般出餐挺快。" })
     ]),
     variable: Object.freeze([
-      Object.freeze({ id: "variable_01", text: "你以前午高峰跑这家店：有时很快，有时会拖一会儿。" }),
-      Object.freeze({ id: "variable_02", text: "你以前午高峰跑这家店：出餐快慢不太稳定。" }),
-      Object.freeze({ id: "variable_03", text: "你以前午高峰跑这家店：有时不用久等，有时要等上一阵。" }),
-      Object.freeze({ id: "variable_04", text: "你以前午高峰跑这家店：每次出餐速度不太一样。" })
+      Object.freeze({ id: "variable_01", text: "你以前的经验：这家店有时很快，有时会拖一会儿。" }),
+      Object.freeze({ id: "variable_02", text: "你以前的经验：这家店出餐快慢不太稳定。" }),
+      Object.freeze({ id: "variable_03", text: "你以前的经验：这家店有时不用久等，有时要等上一阵。" }),
+      Object.freeze({ id: "variable_04", text: "你以前的经验：这家店每次出餐速度不太一样。" })
     ]),
     often_slow: Object.freeze([
-      Object.freeze({ id: "often_slow_01", text: "你以前午高峰跑这家店：大多数时候出餐偏慢。" }),
-      Object.freeze({ id: "often_slow_02", text: "你以前午高峰跑这家店：通常要等上一会儿。" }),
-      Object.freeze({ id: "often_slow_03", text: "你以前午高峰跑这家店：多数时候不会马上出餐。" }),
-      Object.freeze({ id: "often_slow_04", text: "你以前午高峰跑这家店：一般出餐不算快。" })
+      Object.freeze({ id: "often_slow_01", text: "你以前的经验：这家店大多数时候出餐偏慢。" }),
+      Object.freeze({ id: "often_slow_02", text: "你以前的经验：这家店通常要等上一会儿。" }),
+      Object.freeze({ id: "often_slow_03", text: "你以前的经验：这家店多数时候不会马上出餐。" }),
+      Object.freeze({ id: "often_slow_04", text: "你以前的经验：这家店一般出餐不算快。" })
     ])
   });
   function merchant(id, name, experienceProfileId, experienceCopyIndex) {
@@ -639,6 +663,7 @@
         messageScheduled: messagePlan.messageScheduled,
         scheduledDelayMs: messagePlan.scheduledDelayMs,
         gateDurationMs: CUSTOMER_MESSAGE_GATE_MS,
+        messageCopyVersion: MECHANISM_CONFIG.customerMessageCopyVersion,
         openedAtMs: messageWindowOpenedAtMs
       });
     }
@@ -674,6 +699,7 @@
       scheduledDelayMs: windowState.scheduledDelayMs,
       actualDelayMs: Math.max(0, exposedAtMs - windowState.openedAtMs),
       soundPlayed: windowState.soundPlayed,
+      messageCopyVersion: MECHANISM_CONFIG.customerMessageCopyVersion,
       exposedAtMs
     });
     return snapshot(state);
@@ -686,12 +712,16 @@
     }
     const gateReadyAtMs = Number.isFinite(details.gateReadyAtMs) ? details.gateReadyAtMs : Date.now();
     state.currentMessageWindow.gateReadyAtMs = gateReadyAtMs;
+    const uiPerformance = details.uiPerformance && typeof details.uiPerformance === "object"
+      ? { ...details.uiPerformance }
+      : null;
     logEvent(state, {
       eventType: "customer_message_gate_ready",
       waveIndex: state.waveIndex,
       nodeIndex: state.nodeIndex,
       condition: state.currentMessageWindow.condition,
       customerMessageSeen: state.currentMessageWindow.customerMessageSeen,
+      ...(uiPerformance ? { uiPerformance } : {}),
       gateReadyAtMs
     });
     return snapshot(state);
@@ -985,6 +1015,10 @@
             states: CUSTOMER_MESSAGE_STATES,
             gateDurationMs: CUSTOMER_MESSAGE_GATE_MS,
             delayRangeMs: { ...CUSTOMER_MESSAGE_DELAY_RANGE_MS },
+            messageCopyVersion: MECHANISM_CONFIG.customerMessageCopyVersion,
+            ...(MECHANISM_CONFIG.customerMessageUiPerformanceEnabled ? {
+              uiPerformanceMeasurement: "long_frames_over_50ms_before_and_after_message_reveal"
+            } : {}),
             targetCountsAt72Trials: { none: 36, ordinary: 18, urging: 18 },
             stratification: "objective_scenario_kind",
             changesEnvironmentState: false,

@@ -384,6 +384,18 @@
       const scheduledWindows = windows.filter((event) => event.messageScheduled);
       check("u_message_window_count_exact", windows.length === expected, windows.length, expected);
       check("u_message_gate_count_exact", gates.length === expected, gates.length, expected);
+      if (exportedData?.configuration?.customerMessageDesign?.uiPerformanceMeasurement) {
+        const measuredGates = gates.filter((event) => (
+          event.uiPerformance?.measurement === "visible_request_animation_frame_intervals"
+          && typeof event.uiPerformance.messageScheduled === "boolean"
+          && finiteNonNegative(event.uiPerformance.plannedWindowDurationMs)
+          && finiteNonNegative(event.uiPerformance.windowDurationMs)
+          && finiteNonNegative(event.uiPerformance.windowTimerOverrunMs)
+          && finiteNonNegative(event.uiPerformance.longFramesDuringWindow)
+        ));
+        check("u_message_ui_performance_all_recorded", measuredGates.length === expected,
+          measuredGates.length, expected);
+      }
       check("u_scheduled_messages_all_exposed", exposures.length === scheduledWindows.length,
         { exposures: exposures.length, scheduled: scheduledWindows.length },
         { exposures: scheduledWindows.length, scheduled: scheduledWindows.length });

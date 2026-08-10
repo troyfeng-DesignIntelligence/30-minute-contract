@@ -21,13 +21,14 @@
       .trim()
       .toLowerCase()
       .replace(/[.-]+/g, "_");
+    if (["k_u_unified_v1_2", "k_u_v1_2", "u_stronger", "stronger_u"].includes(normalized)) return "k_u_unified_v1_2";
     if (["k_u_unified_v1", "k_u", "u_unified", "unified"].includes(normalized)) return "k_u_unified_v1";
     if (["k_calibrated_v1", "candidate", "k_prior_calibration"].includes(normalized)) return "k_calibrated_v1";
     return "frozen_v2_0";
   }
   const MECHANISM_VARIANT = requestedMechanismVariant();
 
-  const calibratedHistory = MECHANISM_VARIANT === "k_calibrated_v1" || MECHANISM_VARIANT === "k_u_unified_v1";
+  const calibratedHistory = ["k_calibrated_v1", "k_u_unified_v1", "k_u_unified_v1_2"].includes(MECHANISM_VARIANT);
   const candidateReturnPresentation = calibratedHistory
     ? Object.freeze({
       visualCode: "return_observed",

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#102f30">
   <meta name="robots" content="noindex, nofollow, noarchive">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'">
-  <title>洪流骑手 · 等还是先送</title>
+  <title>洪流骑手 · 跑单决策模拟器</title>
   <link rel="stylesheet" href="./pomdp-v2.css">
   <script type="importmap">
     { "imports": { "three": "./node_modules/three/build/three.module.js" } }
@@ -46,7 +46,6 @@
         <div class="notebook-rule" aria-hidden="true"></div>
         <p id="historyFact1" class="history-fact-row">上一次：没等多久，取到餐了</p>
         <p id="historyFact2" class="history-fact-row is-hidden"></p>
-        <em>只记发生过的事，不替你判断</em>
       </div>
     </aside>
 
@@ -79,18 +78,22 @@
         <button type="button" data-route="wait_until_ready">
           <span class="action-icon">◷</span>
           <strong>等餐做好再一起送</strong>
-          <small>留在店里等到新餐做好，再把手上这单和新单一起送。</small>
+          <small>留在店里等到新餐做好，再把这两单一起送。</small>
         </button>
         <button type="button" data-route="deliver_carried_first">
           <span class="action-icon">➜</span>
           <strong>先送手上这单</strong>
-          <small>现在就去送餐，送完再回来。能保住手上的单，但要折返一次。</small>
+          <small>现在就去送手上这单，送完再回来，但要折返一次。</small>
         </button>
       </div>
     </section>
 
     <section id="speedDecision" class="speed-dock is-hidden" aria-labelledby="speedTitle">
       <div class="speed-heading"><h2 id="speedTitle">准备骑多快？</h2><p id="chosenRouteText">选定后，到两单送完都按这一档骑。</p></div>
+      <div id="routeTransitionStatus" class="route-transition-status is-hidden" role="status" aria-live="polite">
+        <span aria-hidden="true"><i></i><i></i><i></i></span>
+        <strong>路线定好了，准备出发</strong>
+      </div>
       <div class="gear-legend" aria-hidden="true"><span>省时程度</span><span>事故风险</span></div>
       <div id="gearLever" class="gear-lever" role="radiogroup" aria-label="骑行档位">
         <button type="button" data-speed="normal" role="radio" aria-checked="false"><b>1</b><strong>稳骑</strong><span class="gear-meter"><i></i><em></em></span><small>慢一些 · 风险低</small></button>
@@ -142,11 +145,11 @@
       <div class="start-copy">
         <span class="eyebrow">午高峰 · 骑手上岗</span>
         <h1>洪流骑手</h1>
-        <p>今天你来当一次外卖骑手，目标就是多赚钱。平台已经排好订单，导航会自动带你到取餐点和送餐地；到了店，你决定等到餐好再一起送，还是先送手上的，再选择整趟骑多快。</p>
+        <p>今天你来当一次外卖骑手，目标就是多赚钱。平台已经排好订单并自动导航，你负责决定是否等到餐好再一起送，并且选择骑行速度。</p>
         <button id="startButton" class="primary-button" type="button">下面是试跑环节 <span>→</span></button>
-        <small id="modeDescription">正式班次：2家店 · 每家6组</small>
+        <small id="modeDescription">正式班次：2家店 · 每家6组订单</small>
       </div>
-      <div class="start-goal"><span>目标</span><strong>多赚钱</strong><small>别让订单迟到，也别在路上出事</small></div>
+      <div class="start-goal"><span>目标</span><strong>少迟到，多赚钱</strong></div>
     </section>
 
     <section id="briefingModal" class="modal-layer is-hidden" role="dialog" aria-modal="true" aria-labelledby="briefingTitle">
@@ -174,7 +177,7 @@
         <div class="step-progress"><span id="notebookTutorialStep">上岗提示 · 8/12</span><i><b></b></i></div>
         <span class="eyebrow">跑过一组以后</span>
         <h2 id="notebookTutorialTitle">先认一下骑手笔记</h2>
-        <p>接下来还是这家店。刚才实际发生的取餐情况会记在这里，能辅助你继续判断今天这一阵的情况。</p>
+        <p>骑手笔记会记录下最近两次取单的情况，帮助你判断这家店目前的出餐速度。</p>
         <div class="notebook-tutorial-layout">
           <div class="notebook-tutorial-page" aria-label="骑手笔记示例">
             <small>刚才的取餐记录</small>
@@ -184,9 +187,9 @@
             <p id="notebookTutorialFact2" class="history-fact-row is-hidden"></p>
           </div>
           <div class="notebook-tutorial-rules">
-            <article><b>表情怎么读</b><span id="notebookTutorialHowToRead">表情大致表示这次等得轻松还是很久；带折返箭头表示送完回来后才取餐。</span></article>
-            <article><b>它不会替你判断</b><span>这里不会直接写店里现在忙不忙。</span></article>
-            <article><b>换店会重开</b><span>到了下一家店，旧店的笔记不会带过去。</span></article>
+            <article><b>表情怎么读</b><span id="notebookTutorialHowToRead">表情反映等餐耗时；若有折返箭头，表示该次选择了折返送餐。</span></article>
+            <article><b>不替代判断</b><span>它只提供一个店内情况的参考，不直接说明忙不忙。</span></article>
+            <article><b>每家店情况不同</b><span>到了下一家店，笔记会进行清空。</span></article>
           </div>
         </div>
         <button id="notebookTutorialNext" class="primary-button" type="button">看懂了，继续跑单</button>
@@ -198,7 +201,7 @@
     </section>
 
     <section id="summaryModal" class="modal-layer is-hidden" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
-      <div class="summary-card"><span class="eyebrow">今天的账</span><h2 id="summaryTitle">今天收工</h2><div id="summaryGrid" class="summary-grid"></div><p>今天的单跑完了。你可以把这份账留下，也可以再跑一次。</p><div class="summary-actions"><button id="downloadButton" type="button">保存今天的账</button><button id="restartButton" class="primary-button" type="button">再跑一次</button></div></div>
+      <div class="summary-card"><span class="eyebrow">今天的账</span><h2 id="summaryTitle">今天收工</h2><div id="summaryGrid" class="summary-grid"></div><div class="summary-actions"><button id="downloadButton" type="button">保存今天的账</button><button id="restartButton" class="primary-button" type="button">再跑一次</button></div></div>
     </section>
 
     <pre id="debugPanel" class="debug-panel is-hidden" aria-hidden="true"></pre>

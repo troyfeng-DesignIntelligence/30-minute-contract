@@ -13,7 +13,7 @@
     (() => {
       const params = new URLSearchParams(location.search);
       if (!params.has("mode")) params.set("mode", "experiment");
-      if (!params.has("mechanism")) params.set("mechanism", "k-u-unified-v1");
+      if (!params.has("mechanism")) params.set("mechanism", "k-u-unified-v1.2");
       if (!params.has("seed")) {
         const values = new Uint32Array(1);
         if (globalThis.crypto?.getRandomValues) {
@@ -27,7 +27,7 @@
         const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
         params.set("pid", `SHARE-${Date.now().toString(36).toUpperCase()}-${suffix}`);
       }
-      if (!params.has("build")) params.set("build", "pomdp-k-u-unified-candidate-v1.1-attention-pressure");
+      if (!params.has("build")) params.set("build", "pomdp-k-u-unified-candidate-v1.2-copy-review-r2");
       location.replace(`./pomdp-v2.html?${params.toString()}`);
     })();
   </script>

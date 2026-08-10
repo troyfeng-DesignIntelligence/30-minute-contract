@@ -37,9 +37,8 @@ button { font: inherit; }
   color: #f5f0df;
   background: linear-gradient(145deg, rgba(36, 37, 33, .94), rgba(19, 20, 18, .9));
   box-shadow: 0 12px 34px rgba(0, 0, 0, .32), inset 0 1px rgba(255, 255, 255, .05);
-  backdrop-filter: blur(8px) saturate(.85);
+  contain: layout paint style;
   pointer-events: none;
-  animation: customer-message-in 260ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
 .customer-message-avatar {
@@ -65,11 +64,6 @@ button { font: inherit; }
   overflow-wrap: anywhere;
   font-size: 16px;
   line-height: 1.42;
-}
-
-@keyframes customer-message-in {
-  from { opacity: 0; transform: translate(-50%, -12px) scale(.98); }
-  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
 @media (max-width: 640px) {
@@ -193,6 +187,16 @@ button { font: inherit; }
 .speed-dock { position: absolute; z-index: 12; right: 24px; bottom: 24px; width: min(460px, calc(100vw - 48px)); padding: 20px; border: 1px solid var(--line); border-radius: 24px; background: linear-gradient(145deg, rgba(7,37,38,.97), rgba(8,43,43,.92)); box-shadow: var(--shadow); animation: speed-in .34s var(--ease-out) both; }
 .speed-heading h2 { margin: 4px 0 4px; font-size: 25px; }
 .speed-heading p { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+.route-transition-status { display: flex; align-items: center; gap: 10px; min-height: 38px; margin: 0 0 10px; padding: 8px 10px; border: 1px solid rgba(242,200,75,.3); border-radius: 10px; background: rgba(242,200,75,.08); color: #e8ddbc; }
+.route-transition-status > span { display: flex; gap: 3px; align-items: center; }
+.route-transition-status i { width: 5px; height: 5px; border-radius: 50%; background: var(--yellow); animation: route-ready-dot .75s ease-in-out infinite alternate; }
+.route-transition-status i:nth-child(2) { animation-delay: .12s; }
+.route-transition-status i:nth-child(3) { animation-delay: .24s; }
+.route-transition-status strong { font-size: 12px; letter-spacing: .02em; }
+.speed-dock.is-preparing .gear-legend,
+.speed-dock.is-preparing .gear-lever,
+.speed-dock.is-preparing > .primary-button { opacity: .48; }
+.speed-dock.is-preparing .gear-lever { pointer-events: none; }
 .gear-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 0 10px 6px 112px; color: var(--muted); font-size: 10px; text-align: center; }
 .gear-lever { display: grid; gap: 7px; }
 .gear-lever button { display: grid; grid-template-columns: 32px 62px 1fr; gap: 4px 9px; align-items: center; min-height: 58px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.04); color: var(--ink); text-align: left; cursor: pointer; transition: transform .15s var(--ease-out), background .15s ease, border-color .15s ease; }
@@ -563,3 +567,8 @@ body { font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sys
 }
 
 @keyframes notebook-in-right { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes route-ready-dot { from { opacity: .35; transform: translateY(1px); } to { opacity: 1; transform: translateY(-1px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .route-transition-status i { animation: none; opacity: .8; }
+}

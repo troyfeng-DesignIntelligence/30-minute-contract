@@ -4,6 +4,7 @@ const Sim = window.PomdpCourierV2;
 if (!Sim) throw new Error("PomdpCourierV2 failed to load");
 const kCalibratedCandidate = Sim.MECHANISM_CONFIG.kCalibrated === true;
 const customerMessagesUEnabled = Sim.MECHANISM_CONFIG.customerMessagesUEnabled === true;
+const customerMessageCopyVersion = Sim.MECHANISM_CONFIG.customerMessageCopyVersion || "customer-message-copy-v1.1-polite";
 const HistoryPresentation = window.PomdpHistoryPresentation;
 if (!HistoryPresentation) throw new Error("PomdpHistoryPresentation failed to load");
 const Telemetry = window.PomdpExperimentTelemetry;
@@ -51,7 +52,7 @@ const els = Object.fromEntries([
   "merchantLabel", "storeProgress", "storeProgressTitle", "storeProgressNodes", "storeProgressLabel", "capacityStatus", "capacityCells", "incomeStatus", "incomeValue", "travelPrompt", "travelIcon", "travelTitle", "travelDetail",
   "travelProgress", "routeDecision", "experienceText", "riderNotebook", "notebookMerchant", "historyFact1", "historyFact2", "carriedUrgencyLabel", "newUrgencyLabel",
   "carriedUrgency", "newUrgency", "carriedDestination", "platformText", "carriedOrderCard", "newOrderCard", "routeActions", "speedDecision",
-  "chosenRouteText", "goButton", "customerMessageCard", "customerMessageText", "feedbackCard", "feedbackIcon", "feedbackKicker", "feedbackTitle",
+  "chosenRouteText", "routeTransitionStatus", "goButton", "customerMessageCard", "customerMessageText", "feedbackCard", "feedbackIcon", "feedbackKicker", "feedbackTitle",
   "feedbackText", "rewardBurst", "rewardBurstLabel", "rewardBurstValue", "rewardBurstLoss", "resultCard", "resultTitle", "carriedResult", "carriedLateLoss", "newResult", "newLateLoss", "incidentResult",
   "incomeResult", "resultGrid", "incidentConsequences", "incidentDelayResult", "incidentCapacityResult", "continueButton", "startScreen", "startButton", "modeDescription", "briefingModal",
   "briefingStep", "briefingProgress", "briefingKicker", "briefingTitle", "briefingLead",
@@ -96,20 +97,20 @@ window.__pomdpRuntimeTelemetry = () => experimentTelemetry.snapshot(world.getVis
 // Retained from the reviewed copy set for provenance. The live one-page briefing is rendered below.
 const BRIEFING = Object.freeze([
   {
-    section: "故事",
-    kicker: "你正在送外卖",
-    title: "午高峰，平台已经给你排好了单",
-    lead: "目标：安排好送餐路线和策略，尽可能多地赚钱",
+    section: null,
+    kicker: null,
+    title: null,
+    lead: null,
     cards: [
-      ["平台", "订单已经排好", "下一家店和送达地点都会直接告诉你。"],
-      ["导航", "无需找路", "不用转弯找路，只决定怎么安排、骑多快。"],
-      ["你", "跑单骑手", "今天收入多少，要看一路上的选择和结果。"]
+      [],
+      [],
+      []
     ]
   },
   {
-    section: "目标",
-    kicker: "今天怎么算赚得好",
-    title: "订单要送到，最好别迟到",
+    section: null,
+    kicker: null,
+    title: null,
     lead: "每单的基础收入一样。迟到会少赚，骑得太猛又可能出事故。事故还会吃掉接单余力，让后面的机会变少。",
     cards: [
       ["准时", "拿到完整收入", "订单送到红线之前，就按完整金额结算。"],
@@ -118,12 +119,12 @@ const BRIEFING = Object.freeze([
     ]
   },
   {
-    section: "流程",
-    kicker: "一段里会发生什么",
-    title: "每家店连续跑六组订单",
-    lead: "正式跑单时，你会在同一家店连续处理六组订单。每组都有一次路线安排和一次整趟档位选择。跑完这家店，再换到下一家。",
+    section: null,
+    kicker: null,
+    title: null,
+    lead: null,
     cards: [
-      ["第一步", "到店看情况", "新餐没好时，决定等一会还是先送。"],
+      [null, null, "新餐没好时，决定等一会还是先送。"],
       ["第二步", "选骑行档位", "路线排好后，再决定这趟路骑多快。"],
       ["第三步", "看结果", "订单、事故和收入结算后，再处理下一组。"]
     ]
@@ -206,6 +207,9 @@ let rewardTimer = 0;
 let messageGateReady = !customerMessagesUEnabled;
 let messageWindowToken = 0;
 let messageAudioContext = null;
+let messageAudioPrewarmAttempted = false;
+let customerMessageAnimation = null;
+let lastMessageUiPerformance = null;
 const TRAINING_STEP_COUNT = customerMessagesUEnabled ? 13 : 12;
 
 function hide(element) { element.classList.add("is-hidden"); }
@@ -220,19 +224,46 @@ function showCustomerMessage() {
 }
 function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 function duration(normalMilliseconds) { return fastMotion ? Math.min(90, normalMilliseconds) : normalMilliseconds; }
+function setOptionalText(element, value) {
+  const visible = typeof value === "string" && value.trim().length > 0;
+  element.textContent = visible ? value : "";
+  element.hidden = !visible;
+}
 
 function customerMessageCopy(condition) {
+  if (condition === "urging" && customerMessageCopyVersion === "customer-message-copy-v1.2-direct-pressure") {
+    return "怎么还没到？我现在很饿了，赶紧给我送过来。";
+  }
   return condition === "urging"
     ? "您好，麻烦尽量快点送到，谢谢。"
     : "您好，送到后放门口就行，谢谢。";
 }
 
-async function playCustomerMessageTone() {
+function ensureCustomerMessageAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  messageAudioContext ||= new AudioContextClass();
+  return messageAudioContext;
+}
+
+function prewarmCustomerMessageTone() {
+  if (!customerMessagesUEnabled) return;
+  messageAudioPrewarmAttempted = true;
   try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return false;
-    messageAudioContext ||= new AudioContextClass();
-    if (messageAudioContext.state === "suspended") await messageAudioContext.resume();
+    const context = ensureCustomerMessageAudio();
+    if (context?.state === "suspended") void context.resume().catch(() => {});
+  } catch {
+    // Sound is supplementary; the visible message remains the experimental exposure.
+  }
+}
+
+function playCustomerMessageTone() {
+  try {
+    const context = ensureCustomerMessageAudio();
+    if (!context || context.state !== "running") {
+      if (context?.state === "suspended") void context.resume().catch(() => {});
+      return false;
+    }
     const oscillator = messageAudioContext.createOscillator();
     const gain = messageAudioContext.createGain();
     oscillator.type = "sine";
@@ -249,6 +280,31 @@ async function playCustomerMessageTone() {
   }
 }
 
+function rendererPerformanceCheckpoint() {
+  const performanceState = world.getVisualRuntime().performance;
+  return {
+    atPerformanceMs: Math.round(performance.now() * 100) / 100,
+    longFramesOver50Ms: Number(performanceState.longFramesOver50Ms || 0)
+  };
+}
+
+function afterTwoRenderedFrames() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+function animateCustomerMessage() {
+  customerMessageAnimation?.cancel();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !els.customerMessageCard.animate) return;
+  customerMessageAnimation = els.customerMessageCard.animate([
+    { opacity: 0, transform: "translate(-50%, -10px) scale(.985)" },
+    { opacity: 1, transform: "translate(-50%, 0) scale(1)" }
+  ], {
+    duration: 220,
+    easing: "cubic-bezier(.2, .8, .2, 1)",
+    fill: "both"
+  });
+}
+
 function updateGoButtonState() {
   const speedButtonsLocked = customerMessagesUEnabled && !messageGateReady;
   els.speedDecision.querySelectorAll("[data-speed]").forEach((button) => {
@@ -257,7 +313,7 @@ function updateGoButtonState() {
   });
   if (speedButtonsLocked) {
     els.goButton.disabled = true;
-    els.goButton.textContent = "稍等片刻";
+    els.goButton.textContent = "准备出发…";
     return;
   }
   if (!selectedSpeed) {
@@ -275,30 +331,73 @@ async function runCustomerMessageWindow() {
   const plan = Sim.customerMessagePlanFor(game);
   messageGateReady = false;
   hideCustomerMessage();
+  show(els.routeTransitionStatus);
+  els.speedDecision.classList.add("is-preparing");
   updateGoButtonState();
   const timeScale = fastMotion ? 0.04 : 1;
+  const gateWaitMs = Math.max(90, Math.round(Sim.CUSTOMER_MESSAGE_GATE_MS * timeScale));
+  const messageDelayMs = plan.messageScheduled
+    ? Math.max(30, Math.round(plan.scheduledDelayMs * timeScale))
+    : null;
+  const windowStarted = rendererPerformanceCheckpoint();
+  let beforeReveal = null;
+  let afterReveal = null;
   const exposureTask = plan.messageScheduled ? (async () => {
-    await delay(Math.max(30, Math.round(plan.scheduledDelayMs * timeScale)));
+    await delay(messageDelayMs);
     if (token !== messageWindowToken || game.phase !== "speed_decision") return;
     els.customerMessageText.textContent = customerMessageCopy(plan.condition);
     els.customerMessageCard.dataset.condition = plan.condition;
+    beforeReveal = rendererPerformanceCheckpoint();
     showCustomerMessage();
-    replayAnimation(els.customerMessageCard, "is-arriving");
-    const soundPlayed = await playCustomerMessageTone();
+    animateCustomerMessage();
+    const soundPlayed = playCustomerMessageTone();
     Sim.markCustomerMessageExposed(game, { soundPlayed });
+    await afterTwoRenderedFrames();
+    afterReveal = rendererPerformanceCheckpoint();
     if (trainingActive && Sim.snapshot(game).nodeIndex === 0) {
       await showCoach(
         els.customerMessageCard,
         "顾客有时会在你定好路线后发消息",
-        "普通消息和催促消息都会从这里出现。消息不会改平台时间、收入或事故风险；整趟骑多快，还是由你决定。"
+        "消息不会影响平台时间、收入或事故风险；整趟骑多快，还是由你决定。"
       );
     }
   })() : Promise.resolve();
-  await delay(Math.max(90, Math.round(Sim.CUSTOMER_MESSAGE_GATE_MS * timeScale)));
+  await delay(gateWaitMs);
   await exposureTask;
   if (token !== messageWindowToken || game.phase !== "speed_decision") return;
-  Sim.markCustomerMessageGateReady(game);
+  const gateEnded = rendererPerformanceCheckpoint();
+  lastMessageUiPerformance = {
+    measurement: "visible_request_animation_frame_intervals",
+    messageScheduled: plan.messageScheduled,
+    plannedWindowDurationMs: gateWaitMs,
+    windowDurationMs: Math.round((gateEnded.atPerformanceMs - windowStarted.atPerformanceMs) * 100) / 100,
+    windowTimerOverrunMs: Math.max(0, Math.round((
+      gateEnded.atPerformanceMs - windowStarted.atPerformanceMs - gateWaitMs
+    ) * 100) / 100),
+    plannedMessageRevealDelayMs: messageDelayMs,
+    messageRevealLatencyMs: beforeReveal
+      ? Math.round((beforeReveal.atPerformanceMs - windowStarted.atPerformanceMs) * 100) / 100
+      : null,
+    messageRevealTimerOverrunMs: beforeReveal
+      ? Math.max(0, Math.round((
+        beforeReveal.atPerformanceMs - windowStarted.atPerformanceMs - messageDelayMs
+      ) * 100) / 100)
+      : null,
+    longFramesBeforeReveal: beforeReveal
+      ? Math.max(0, beforeReveal.longFramesOver50Ms - windowStarted.longFramesOver50Ms)
+      : null,
+    longFramesImmediatelyAfterReveal: beforeReveal && afterReveal
+      ? Math.max(0, afterReveal.longFramesOver50Ms - beforeReveal.longFramesOver50Ms)
+      : null,
+    longFramesAfterRevealUntilGate: afterReveal
+      ? Math.max(0, gateEnded.longFramesOver50Ms - afterReveal.longFramesOver50Ms)
+      : null,
+    longFramesDuringWindow: Math.max(0, gateEnded.longFramesOver50Ms - windowStarted.longFramesOver50Ms)
+  };
+  Sim.markCustomerMessageGateReady(game, { uiPerformance: lastMessageUiPerformance });
   messageGateReady = true;
+  hide(els.routeTransitionStatus);
+  els.speedDecision.classList.remove("is-preparing");
   updateGoButtonState();
   updateDebug();
 }
@@ -360,7 +459,7 @@ function showCoach(target, title, text, buttonText = "明白了，继续") {
   els.tutorialCoach.classList.toggle("is-notebook-coach", target === els.riderNotebook);
   els.coachStep.textContent = `上岗提示 · ${trainingStep}/${TRAINING_STEP_COUNT}`;
   els.coachTitle.textContent = title;
-  els.coachText.textContent = text;
+  setOptionalText(els.coachText, text);
   els.coachNext.textContent = buttonText;
   show(els.tutorialCoach);
   return new Promise((resolve) => { coachResolve = resolve; });
@@ -386,7 +485,7 @@ function showNotebookTutorial(snapshot) {
   if (recent[1]) renderHistoryFactRow(els.notebookTutorialFact2, recent[1], "上上次");
   els.notebookTutorialFact2.classList.toggle("is-hidden", !recent[1]);
   if (kCalibratedCandidate) {
-    els.notebookTutorialHowToRead.textContent = "留店等餐时，表情大致表示等了多久；带折返箭头时，只表示回来那刻餐好了没有。";
+    els.notebookTutorialHowToRead.textContent = "表情反映等餐耗时；若有折返箭头，表示该次选择了折返送餐。";
   }
   show(els.notebookTutorialModal);
   return new Promise((resolve) => { notebookTutorialResolve = resolve; });
@@ -466,6 +565,8 @@ function renderHud(snapshot = Sim.snapshot(game)) {
 function hidePlaySurfaces() {
   messageWindowToken += 1;
   hideCustomerMessage();
+  hide(els.routeTransitionStatus);
+  els.speedDecision.classList.remove("is-preparing");
   [els.routeDecision, els.riderNotebook, els.speedDecision, els.feedbackCard, els.rewardBurst, els.resultCard, els.travelPrompt].forEach(hide);
 }
 
@@ -498,19 +599,23 @@ function renderBriefing() {
           <svg viewBox="0 0 40 34" focusable="false">
             <path d="M6 13h28v17H6zM4 13l4-8h24l4 8M11 13v5m6-5v5m6-5v5m6-5v5M10 30V20h12v10m4-7h5" />
           </svg>
-          <b>本店</b>
+          <b></b>
         </div>
-        <div class="briefing-group-track">
-          ${[1, 2, 3, 4, 5, 6].map((number) => `<i>${number}</i>`).join("")}
-        </div>
-        <div class="briefing-next-store"><b>→</b><em>换店</em></div>
+        <div class="briefing-group-track"></div>
+        <div class="briefing-next-store"><b>→</b><em></em></div>
       `;
+      flow.querySelector(".briefing-store-symbol b").textContent = "本店";
+      flow.querySelector(".briefing-next-store em").textContent = "换店";
+      flow.querySelector(".briefing-group-track").replaceChildren(...[1, 2, 3, 4, 5, 6].map((number) => {
+        const node = document.createElement("i");
+        node.textContent = number;
+        return node;
+      }));
       article.append(flow);
     }
     article.insertAdjacentHTML("beforeend", `<strong>${title}</strong><small>${text}</small>`);
     return article;
   }));
-  els.briefingNext.innerHTML = "戴好头盔，出发 <span>→</span>";
 }
 
 function createHistoryFactSymbol(presentation) {
@@ -604,18 +709,18 @@ async function guideStoreDecision(snapshot) {
   if (snapshot.nodeIndex === 0) {
     await showCoach(
       els.experienceText,
-      "你记得这家店平时怎么样",
+      "你对取餐店有个大概的印象",
       "这是你过去午高峰跑这家店留下的印象，可以帮你先有个大概判断。"
     );
     await showCoach(
       els.carriedOrderCard,
       "左边是手上正在送的单",
-      "时间条越长，这单越赶。继续留在店里，它的送达时间也会继续减少。"
+      null
     );
     await showCoach(
       els.newOrderCard,
       "右边是店里正在做的新单",
-      "平台文字和时间条说的是送达安排紧不紧，不是在预测餐什么时候做好。餐现在只确定“还没好”。"
+      null
     );
     await showCoach(
       els.routeActions,
@@ -632,7 +737,7 @@ async function playTravelLeg({ targetType, targetLabel, title, detail, milliseco
   els.objectiveLabel.textContent = title;
   els.travelIcon.textContent = targetType === "merchant" ? "⌂" : "➜";
   els.travelTitle.textContent = title;
-  els.travelDetail.textContent = detail;
+  setOptionalText(els.travelDetail, detail);
   els.travelProgress.style.width = "0%";
   els.travelPrompt.classList.remove("is-waiting");
   show(els.travelPrompt);
@@ -650,7 +755,7 @@ async function playWaitLeg(merchantName, waitedSeconds, copy = {}) {
   els.objectiveLabel.textContent = "留在店里等餐";
   els.travelIcon.textContent = "◷";
   els.travelTitle.textContent = copy.title || "等新餐做好";
-  els.travelDetail.textContent = copy.detail || "餐好后把两单一起送";
+  setOptionalText(els.travelDetail, copy.detail || "餐好后把两单一起送");
   els.travelProgress.style.width = "0%";
   els.travelPrompt.classList.add("is-waiting");
   show(els.travelPrompt);
@@ -672,7 +777,6 @@ async function approachStore() {
     targetType: "merchant",
     targetLabel: snapshot.currentNode.merchant.name,
     title: `去${snapshot.currentNode.merchant.name}取餐`,
-    detail: "自动导航",
     milliseconds: 900
   });
   const arrived = Sim.arriveAtStore(game);
@@ -685,6 +789,8 @@ function renderSpeedDecision(routeAction) {
   selectedSpeed = null;
   messageGateReady = !customerMessagesUEnabled;
   hideCustomerMessage();
+  els.speedDecision.classList.toggle("is-preparing", customerMessagesUEnabled);
+  els.routeTransitionStatus.classList.toggle("is-hidden", !customerMessagesUEnabled);
   els.speedDecision.querySelectorAll("[data-speed]").forEach((button) => button.setAttribute("aria-checked", "false"));
   updateGoButtonState();
   els.chosenRouteText.textContent = routeAction === "wait_until_ready"
@@ -697,31 +803,27 @@ function feedbackCopy(result) {
   if (result.feedbackOutcome === "ready_after_short_wait") return {
     kicker: "没等多久",
     title: "餐做好了",
-    text: "取到新餐，现在把两单一起送。",
     icon: "✓"
   };
   if (result.feedbackOutcome === "ready_after_medium_wait") return {
     kicker: "等了一阵",
     title: "餐做好了",
-    text: "取到新餐，现在把两单一起送。",
     icon: "✓"
   };
   if (result.feedbackOutcome === "ready_after_long_wait") return {
     kicker: "等了很久",
     title: "餐终于做好了",
-    text: "取到新餐，现在把两单一起送。",
     icon: "✓"
   };
   if (result.feedbackOutcome === "ready_on_return") return {
     kicker: "送完手上这单，回到店里",
     title: "餐已经做好了",
-    text: kCalibratedCandidate ? "你只知道回来时已经能取餐。" : "现在可以直接取走。",
+    text: kCalibratedCandidate ? null : "现在可以直接取走。",
     icon: kCalibratedCandidate ? "↩" : "✓"
   };
   return {
     kicker: "回来后又等了一会",
     title: "取到餐了",
-    text: "现在带着新餐继续送。",
     icon: "✓"
   };
 }
@@ -729,8 +831,8 @@ function feedbackCopy(result) {
 async function flashFeedback(result) {
   const copy = feedbackCopy(result);
   els.feedbackKicker.textContent = copy.kicker;
-  els.feedbackTitle.textContent = copy.title;
-  els.feedbackText.textContent = copy.text;
+  setOptionalText(els.feedbackTitle, copy.title);
+  setOptionalText(els.feedbackText, copy.text);
   els.feedbackIcon.textContent = copy.icon;
   els.feedbackCard.dataset.tone = [
     "ready_after_short_wait", "ready_after_medium_wait", "ready_after_long_wait",
@@ -745,7 +847,7 @@ async function flashFeedback(result) {
       els.feedbackCard,
       "留意取餐店情况",
       kCalibratedCandidate
-        ? "刚才发生的事只是一条线索。一次结果不能直接说明店里忙不忙，但能帮助你继续判断今天这一阵的情况。"
+        ? "出餐速度可以为你接下来的判断提供一定的参考。"
         : "店家的出餐速度说明了今天实际忙不忙，能为你再回到这家店时提供参考。"
     );
   } else {
@@ -757,9 +859,9 @@ async function flashFeedback(result) {
 async function flashIncidentConsequences() {
   await world.playIncident();
   els.feedbackIcon.textContent = "!";
-  els.feedbackKicker.textContent = "路上出了状况";
-  els.feedbackTitle.textContent = "眼前和后面都会受影响";
-  els.feedbackText.textContent = "事故耽误了时间，并且多扣除接单余力";
+  els.feedbackKicker.textContent = "发生事故";
+  setOptionalText(els.feedbackTitle, null);
+  setOptionalText(els.feedbackText, "事故耽误了时间，并且多扣除接单余力");
   els.feedbackCard.dataset.tone = "danger";
   show(els.feedbackCard);
   replayAnimation(els.feedbackCard, "is-arriving");
@@ -780,7 +882,6 @@ async function animateResolution(result, snapshotBefore) {
       targetType: "customer",
       targetLabel: node.carriedDestination,
       title: `送手上的单 · ${node.carriedDestination}`,
-      detail: "先把时间更紧的单送到",
       milliseconds: 620,
       speedId: result.speedId
     });
@@ -791,7 +892,6 @@ async function animateResolution(result, snapshotBefore) {
       targetType: "customer",
       targetLabel: node.carriedDestination,
       title: `先送手上的单 · ${node.carriedDestination}`,
-      detail: "送完再回店取餐",
       milliseconds: 640,
       speedId: result.speedId
     });
@@ -801,7 +901,6 @@ async function animateResolution(result, snapshotBefore) {
       targetType: "merchant",
       targetLabel: node.merchant.name,
       title: `返回${node.merchant.name}取餐`,
-      detail: "看看餐做好了没有",
       milliseconds: 500,
       speedId: result.speedId
     });
@@ -818,7 +917,6 @@ async function animateResolution(result, snapshotBefore) {
     targetType: "customer",
     targetLabel: node.newDestination,
     title: `送新取的单 · ${node.newDestination}`,
-    detail: "最后一段路",
     milliseconds: 600,
     speedId: result.speedId
   });
@@ -874,7 +972,7 @@ async function submitSpeed() {
     await showCoach(
       els.resultGrid,
       "送餐结果",
-      "这里会写清两单有没有准时、路上有没有出事，还有这组赚了多少钱。出了事故时，下方会把两个后果分开写：这趟多耽误约一分半，同时接单余力再少一格。"
+      "这里会写出本次送餐是否准时，有无事故。"
     );
   }
   interactionLocked = false;
@@ -903,7 +1001,7 @@ async function showBreak() {
     : `接下来前往${nextMerchant || "下一家店"}`;
   els.breakNextText.textContent = trainingActive
     ? "试跑到这里。接下来正式开工，从第一家店重新跑。"
-    : "到了下一家店，接单余力会恢复，骑手笔记也会重新开始。新店什么情况，还得重新看。";
+    : "到了下一家店，接单余力会恢复，骑手笔记也会清空。";
   els.breakButton.textContent = trainingActive
     ? "试跑结束，开始正式跑单"
     : `前往${nextMerchant || "下一家店"}`;
@@ -1026,7 +1124,7 @@ async function startTrainingShift() {
   await showCoach(
     els.objectiveChip,
     "左上角：当前店铺和跑单进度",
-    "六个圆点表示本店六组，亮圈是正在跑的这一组。正式开工后，每家店连续跑六组。"
+    "正式开工后，每家店需要连续跑六组，共12份订单。"
   );
   await showCoach(
     els.capacityStatus,
@@ -1058,11 +1156,12 @@ async function startFormalSession() {
   els.feedbackCard.dataset.tone = "good";
   els.feedbackIcon.textContent = "✓";
   els.feedbackKicker.textContent = "试跑结束";
-  els.feedbackTitle.textContent = "正式开工！";
-  els.feedbackText.textContent = "每家店连续跑六组。骑手笔记只留本店最近两次的取餐情况；到了下一家店，会重新开始记录。";
-  if (customerMessagesUEnabled) {
-    els.feedbackText.textContent += " 顾客消息只会在路线定好后偶尔出现，不会暗中改变订单数值。";
-  }
+  setOptionalText(els.feedbackTitle, "正式开工！");
+  setOptionalText(
+    els.feedbackText,
+    "骑手笔记只显示最近两次取餐情况；到了下一家店，会重新开始记录。"
+      + (customerMessagesUEnabled ? " 顾客消息有时会出现，但不会改变订单的实际剩余时间。" : "")
+  );
   show(els.feedbackCard);
   await delay(fastMotion ? 250 : 1100);
   hide(els.feedbackCard);
@@ -1070,11 +1169,10 @@ async function startFormalSession() {
   approachStore();
 }
 
-els.modeDescription.textContent = mode === "preview"
-  ? "正式班次：2家店 · 每家6组"
-  : mode === "pilot" ? "正式班次：4家店 · 每家6组" : "正式班次：12家店 · 共72组";
+els.modeDescription.remove();
 
 els.startButton.addEventListener("click", () => {
+  prewarmCustomerMessageTone();
   world.setCruising(false);
   replayAnimation(els.startButton, "is-launching");
   hide(els.startScreen);
@@ -1103,7 +1201,7 @@ els.routeDecision.querySelectorAll("[data-route]").forEach((button) => {
       await showCoach(
         els.gearLever,
         "路线定好后，选整趟骑行档位",
-        "这一趟的所有路程都会按照你选择的档位，骑得越快越省时，但风险越高。",
+        "这一趟全程都会按照你选择的速度骑，骑得越快越省时，但风险越高。",
         "知道了，我来选档"
       );
     }
@@ -1153,6 +1251,20 @@ els.downloadButton.addEventListener("click", () => {
 
 if (debug) {
   window.__pomdpInstrumentationTest = Object.freeze({
+    async startFormalUiTest() {
+      trainingActive = false;
+      interactionLocked = false;
+      [els.startScreen, els.briefingModal, els.tutorialCoach, els.notebookTutorialModal, els.breakModal, els.summaryModal].forEach(hide);
+      hidePlaySurfaces();
+      game = Sim.createGame(seed, formalGameOptions);
+      lastCapacity = null;
+      lastIncome = 0;
+      Sim.start(game);
+      show(els.hud);
+      renderHud();
+      await approachStore();
+      return Sim.snapshot(game);
+    },
     completeFormalSession() {
       trainingActive = false;
       interactionLocked = false;
@@ -1166,7 +1278,23 @@ if (debug) {
           if (customerMessagesUEnabled) {
             const messagePlan = Sim.customerMessagePlanFor(game);
             if (messagePlan.messageScheduled) Sim.markCustomerMessageExposed(game, { soundPlayed: false });
-            Sim.markCustomerMessageGateReady(game);
+            Sim.markCustomerMessageGateReady(game, {
+              uiPerformance: {
+                measurement: "visible_request_animation_frame_intervals",
+                messageScheduled: messagePlan.messageScheduled,
+                plannedWindowDurationMs: Sim.CUSTOMER_MESSAGE_GATE_MS,
+                windowDurationMs: Sim.CUSTOMER_MESSAGE_GATE_MS,
+                windowTimerOverrunMs: 0,
+                plannedMessageRevealDelayMs: messagePlan.scheduledDelayMs,
+                messageRevealLatencyMs: messagePlan.scheduledDelayMs,
+                messageRevealTimerOverrunMs: messagePlan.messageScheduled ? 0 : null,
+                longFramesBeforeReveal: messagePlan.messageScheduled ? 0 : null,
+                longFramesImmediatelyAfterReveal: messagePlan.messageScheduled ? 0 : null,
+                longFramesAfterRevealUntilGate: messagePlan.messageScheduled ? 0 : null,
+                longFramesDuringWindow: 0,
+                instrumentationBypass: true
+              }
+            });
           }
           Sim.resolveChoice(game, game.nodeIndex % 3 ? "normal" : "rush");
           Sim.showResult(game);
@@ -1196,6 +1324,15 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", () => world.destroy());
+window.__pomdpMessageRuntime = () => ({
+  copyVersion: customerMessageCopyVersion,
+  gateDurationMs: Sim.CUSTOMER_MESSAGE_GATE_MS,
+  delayRangeMs: { ...Sim.CUSTOMER_MESSAGE_DELAY_RANGE_MS },
+  audioPrewarmAttempted: messageAudioPrewarmAttempted,
+  audioContextCreated: Boolean(messageAudioContext),
+  audioContextState: messageAudioContext?.state || "unavailable",
+  lastUiPerformance: lastMessageUiPerformance ? { ...lastMessageUiPerformance } : null
+});
 world.setCruising(true);
 renderHud();
 updateDebug();
