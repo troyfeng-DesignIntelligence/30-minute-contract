@@ -578,17 +578,21 @@ function renderBriefing() {
   els.briefingLead.textContent = "";
   els.briefingVisual.replaceChildren(...[
     {
-      label: "你现在是骑手",
-      title: "平台已经把单排好了",
+      label: null,
+      title: "平台自动排单",
       text: customerMessagesUEnabled
-        ? "导航会自动带路。你先安排路线，之后顾客有时会发来消息，再决定整趟骑多快。"
+        ? "导航自动带路，你只需要安排等餐策略和决定速度。"
         : "导航会自动带路。到了店，你来决定等到餐好再一起送，还是先送手上的。"
     },
-    { label: "今天要多赚钱", title: "准时送，路上别出事", text: "准时能拿完整收入；同一次事故会让眼前这趟多耽误约一分半，也会让后面的接单机会变少。" },
-    { label: "同一家店连续跑六组", title: "刚才的取餐情况会记下来", text: "不用硬记。换店时会提醒你，骑手笔记也会重新开始。", visual: "same-store-six-groups" }
+    { label: null, title: "尽可能准时送达", text: "准时送达能得到更高收入，遇到事故则会耽误时间和减少接单机会。" },
+    { label: null, title: "留意取餐店忙碌情况", text: "同一家店会连续跑六单，过往和当下经验会帮助你更好地决定是否等待。", visual: "same-store-six-groups" }
   ].map(({ label, title, text, visual }) => {
     const article = document.createElement("article");
-    article.innerHTML = `<span>${label}</span>`;
+    if (label) {
+      const labelNode = document.createElement("span");
+      labelNode.textContent = label;
+      article.append(labelNode);
+    }
     if (visual === "same-store-six-groups") {
       article.classList.add("has-store-flow");
       const flow = document.createElement("div");

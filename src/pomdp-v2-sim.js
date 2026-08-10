@@ -86,8 +86,8 @@
     k_u_unified_v1_2: Object.freeze({
       id: "k_u_unified_v1_2",
       publicId: "k-u-unified-v1.2",
-      candidateBuildId: "pomdp-k-u-unified-candidate-v1.2-copy-review-r2",
-      dataCompatibility: "pomdp-k-u-unified-candidate-v1.2-copy-review-r2_only",
+      candidateBuildId: "pomdp-k-u-unified-candidate-v1.2-copy-review-r3",
+      dataCompatibility: "pomdp-k-u-unified-candidate-v1.2-copy-review-r3_only",
       customerMessageCopyVersion: "customer-message-copy-v1.2-direct-pressure",
       customerMessageUiPerformanceEnabled: true,
       customerMessageGateMs: 1200,

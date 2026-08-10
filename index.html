@@ -27,7 +27,7 @@
         const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
         params.set("pid", `SHARE-${Date.now().toString(36).toUpperCase()}-${suffix}`);
       }
-      if (!params.has("build")) params.set("build", "pomdp-k-u-unified-candidate-v1.2-copy-review-r2");
+      if (!params.has("build")) params.set("build", "pomdp-k-u-unified-candidate-v1.2-copy-review-r3");
       location.replace(`./pomdp-v2.html?${params.toString()}`);
     })();
   </script>

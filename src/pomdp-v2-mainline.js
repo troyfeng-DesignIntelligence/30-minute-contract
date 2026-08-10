@@ -12,7 +12,7 @@
     page: "prototype/pomdp-v2.html",
     simulatorVersion: "pomdp-courier-experimental-v2.6.4",
     logSchemaVersion: "pomdp-courier-experimental-v2-log-0.12",
-    copyVersion: "pomdp-v2-rider-copy-1.13-u-v1.2-reviewed",
+    copyVersion: "pomdp-v2-rider-copy-1.14-briefing-review",
     experienceCopyVersion: "merchant-k-copy-1.11",
     actionModel: "route-then-trip-pace-v2-wait-until-ready",
     telemetryVersion: "pomdp-experiment-telemetry-v1",
