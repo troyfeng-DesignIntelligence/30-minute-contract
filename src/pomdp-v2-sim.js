@@ -100,6 +100,32 @@
         busy: Object.freeze([0.08, 0.22, 0.35, 0.35])
       }),
       beliefBusyPrior: Object.freeze({ usually_fast: 0.25, variable: 0.50, often_slow: 0.75 })
+    }),
+    k_u_unified_v1_3_pomdp_signal: Object.freeze({
+      id: "k_u_unified_v1_3_pomdp_signal",
+      publicId: "k-u-unified-v1.3-pomdp-signal",
+      candidateBuildId: "pomdp-k-u-unified-candidate-v1.3-pomdp-signal",
+      dataCompatibility: "pomdp-k-u-unified-candidate-v1.3-pomdp-signal_only",
+      customerMessageCopyVersion: "customer-message-copy-v1.2-direct-pressure",
+      customerMessageUiPerformanceEnabled: true,
+      customerMessageGateMs: 1200,
+      customerMessageDelayRangeMs: Object.freeze({ minimum: 350, maximum: 700 }),
+      kCalibrated: true,
+      customerMessagesUEnabled: true,
+      loadAllocationPolicy: "usually_fast_3_smooth_1_busy__variable_2_2__often_slow_1_smooth_3_busy",
+      prepDistributions: Object.freeze({
+        smooth: Object.freeze([0.64, 0.28, 0.07, 0.01]),
+        busy: Object.freeze([0.06, 0.18, 0.34, 0.42])
+      }),
+      beliefBusyPrior: Object.freeze({ usually_fast: 0.25, variable: 0.50, often_slow: 0.75 }),
+      probeScenarios: Object.freeze([
+        Object.freeze({ deadlineA: 300, deadlineB: 330, kind: "history_probe" }),
+        Object.freeze({ deadlineA: 270, deadlineB: 330, kind: "history_probe" })
+      ]),
+      historySignalCalibration: Object.freeze({
+        id: "pomdp-signal-calibration-v1",
+        goal: "increase_action_conditional_feedback_separation_and_belief_sensitive_probe_coverage"
+      })
     })
   });
   function requestedMechanismVariant() {
@@ -114,6 +140,7 @@
       .trim()
       .toLowerCase()
       .replace(/[.-]+/g, "_");
+    if (["k_u_unified_v1_3_pomdp_signal", "k_u_unified_v1_3", "k_u_v1_3", "pomdp_signal", "pomdp_signal_v1"].includes(normalized)) return "k_u_unified_v1_3_pomdp_signal";
     if (["k_u_unified_v1_2", "k_u_v1_2", "u_stronger", "stronger_u"].includes(normalized)) return "k_u_unified_v1_2";
     if (["k_u_unified_v1", "k_u", "u_unified", "unified"].includes(normalized)) return "k_u_unified_v1";
     if (["k_calibrated_v1", "candidate", "k_prior_calibration"].includes(normalized)) return "k_calibrated_v1";
@@ -174,10 +201,11 @@
     merchant("sanli", "三里饭堂", "often_slow", 3)
   ]);
   const DESTINATIONS = Object.freeze(["花园里", "滨河站", "云栖公寓", "春晓社区", "青石里", "望江台"]);
-  const PROBE_SCENARIOS = Object.freeze([
+  const LEGACY_PROBE_SCENARIOS = Object.freeze([
     Object.freeze({ deadlineA: 300, deadlineB: 330, kind: "history_probe" }),
     Object.freeze({ deadlineA: 330, deadlineB: 450, kind: "history_probe" })
   ]);
+  const PROBE_SCENARIOS = MECHANISM_CONFIG.probeScenarios || LEGACY_PROBE_SCENARIOS;
   const TIGHT_SCENARIOS = Object.freeze([
     Object.freeze({ deadlineA: 240, deadlineB: 330, kind: "tight_challenge" })
   ]);
@@ -1007,7 +1035,11 @@
           candidateBuildId: MECHANISM_CONFIG.candidateBuildId,
           loadAllocationPolicy: MECHANISM_CONFIG.loadAllocationPolicy,
           loadPriorByExperience: { ...MECHANISM_CONFIG.beliefBusyPrior },
-          dataCompatibility: MECHANISM_CONFIG.dataCompatibility
+          dataCompatibility: MECHANISM_CONFIG.dataCompatibility,
+          ...(MECHANISM_CONFIG.historySignalCalibration ? {
+            historySignalCalibration: { ...MECHANISM_CONFIG.historySignalCalibration },
+            probeScenarios: PROBE_SCENARIOS.map((scenario) => ({ ...scenario }))
+          } : {})
         } : {}),
         ...(MECHANISM_CONFIG.customerMessagesUEnabled ? {
           customerMessageDesign: {
